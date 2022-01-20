@@ -1,5 +1,6 @@
-\name{StocSum.stat}
-\alias{StocSum.stat}
+%%%%% same code as StocSum.stat
+\name{StocSum.LDSC.stat}
+\alias{StocSum.LDSC.stat}
 \title{
 Calculate statistics
 }
@@ -7,7 +8,7 @@ Calculate statistics
 Calculate summary statistics and the statistics which can be used to reconstruct pairwise LD statistics.
 }
 \usage{
-StocSum.stat(null.obj, geno.file, meta.file.prefix, MAF.range = c(1e-7, 0.5), miss.cutoff = 1, missing.method = "impute2mean", nperbatch = 10000, ncores = 1)
+StocSum.LDSC.stat(null.obj, geno.file, meta.file.prefix, MAF.range = c(1e-3, 0.5), miss.cutoff = 1, missing.method = "impute2mean", nperbatch = 10000, ncores = 1)
 }
 \arguments{
   \item{null.obj}{
@@ -29,7 +30,8 @@ the maximum missing rate allowed for a variant to be included (default = 1, incl
 method of handling missing genotypes. Either "impute2mean" or "impute2zero" (default = "impute2mean").
 }
   \item{nperbatch}{
-an integer for how many SNPs to be included in a batch (default = 10000). The computational time can increase dramatically if this value is either small or large. The optimal value for best performance depends on the user’s system.
+an integer for how many SNPs to be included in a batch (default = 10000) when calculate statistics. The computational time can increase dramatically if this value is either small
+or large. The optimal value for best performance depends on the user’s system.
 }
   \item{ncores}{
 a positive integer indicating the number of cores to be used in parallel computing
@@ -38,7 +40,7 @@ a positive integer indicating the number of cores to be used in parallel computi
 }
 \value{
 NULL. 
-\code{StocSum.stat} will store the summary statistics and the statistics which to be used to calculate LD statistics in two files with the prefix specified by the user.
+\code{StocSum.LDSC.stat} will store the summary statistics and the statistics which to be used to calculate LD statistics in two files with the prefix specified by the user.
 }
   
 \references{
@@ -48,26 +50,24 @@ NULL.
 Han Chen, Nannan Wang
 }
 \seealso{
-\code{glmmkin2randomvec}, \code{StocSum.pval}, 
+\code{StocSum.LDSC.glmmkin2randomvec}, \code{StocSum.LDSC.ldscWinFastParrel}, 
 }
 \examples{
 \donttest{
-
 library(GMMAT)
 data(example)
 attach(example)
-# run glmmkin2randomvec to generate the random vectors 
-GRM.file <- system.file("extdata", "GRM.txt.bz2", package = "GMMAT")
-GRM <- as.matrix(read.table(GRM.file, check.names = FALSE))
-nullmod <- glmmkin(disease ~ age + sex, data = pheno, kins = GRM, id = "id", family = binomial(link = "logit"))
-obj <- glmmkin2randomvec(nullmod)
 
+# run glmmkinrandomvec to generate the null model object
+GRM.file <- system.file(“extdata”, “GRM.txt.bz2”, package = “StocSum”)
+GRM <- as.matrix(read.table(GRM.file, check.names = FALSE))
+nullmod <- glmmkin(disease ~ age + sex, data = pheno, kins = GRM, id = “id”, family = binomial(link = “logit”))
+obj <- glmmkin2randomvec(nullmod)}
 out.prefix <- "test"
 gdsfile <- system.file("extdata", "geno.gds", package = "GMMAT")
 
 # run StocSum.stat 
 StocSum.stat(obj, geno.file = gdsfile, meta.file.prefix = out.prefix,MAF.range=c(0,0.5), miss.cutoff = 1)
 
-}
 }
 \keyword{ summary statics }

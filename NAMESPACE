@@ -15,4 +15,6 @@ importFrom("methods", "as")
 importFrom("GMMAT", "glmmkin")
 # useDynLib(StocSum, .registration = TRUE, .fixes = "C_")
 # functions
-export(glmmkin2randomvec, StocSum.stat, StocSum.meta, StocSum.svt, StocSum.pval)
+export(glmmkin2randomvec, StocSum.stat, StocSum.svt.meta, StocSum.svt, StocSum.pval,StocSum.LDSC.glmmkin2randomvec,
+       StocSum.LDSC.stat,StocSum.LDSC.ldscWinFastParrel,MAF.weights.beta.fun,StocSum.GE.glmmkin2randomvec,
+       StocSum.GE.stat,fisher_pval)

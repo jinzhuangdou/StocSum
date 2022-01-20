@@ -1,14 +1,13 @@
-\name{StocSum.svt}
-\alias{StocSum.svt}
+\name{StocSum.svt.meta}
+\alias{StocSum.svt.meta}
 \title{
-Performing GLMM based score tests
+Performing meta-analysis for GLMM bashed socre test results
 }
 \description{
-Perform score tests for association with genotypes in a GDS file .gds, with summary statistics calculated from \code{glmmkin2randomvec}.
+Use output files from \code{StocSum.stat} to peform meta-analysis.
 }
 \usage{
-StocSum.svt(meta.files.prefix, n.files = rep(1, length(meta.files.prefix)), 
-MAF.range = c(1e-7, 0.5), miss.cutoff = 1, auto.flip = FALSE, nperbatch = 10000)
+StocSum.svt.meta(meta.files.prefix, n.files = rep(1, length(meta.files.prefix)), outfile.prefix, MAF.range = c(1e-7, 0.5), miss.cutoff = 1, auto.flip = FALSE, nperbatch = 10000)
 }
 \arguments{
   \item{meta.file.prefix}{
@@ -16,6 +15,9 @@ a character vector for prefix of intermediate files (*.sample.* and *.resample.*
 }
   \item{n.files}{
 an integer vector with the same length as meta.files.prefix, indicating how many sets of intermediate files (.score.* and .var.*) are expected from each cohort, usually as the result of multi-threading in creating the intermediate files (default = rep(1, length(meta.files.prefix)))
+}
+  \item{outfile.prefix}{
+a character vector for prefix of intermediate files (*.sample.* and *.resample.*) which stores summary statistics of the meta-analysis
 }
   \item{MAF.range}{
 a numeric vector of length 2 defining the minimum and maximum minor allele frequencies of variants that should be included in the analysis (default = c(1e-7, 0.5)).
@@ -31,40 +33,8 @@ an integer for how many SNPs should be tested in a batch (default = 10000). The 
 }
 }
 \value{
-\code{StocSum.svt} returns a data frame with the following components:
-  \item{SNP}{
-SNP name.
-}
-  \item{chr}{
-chromosome name.
-}
-  \item{pos}{
-the genome location of SNP.
-}
-  \item{ref}{
-allele of reference.
-}
-  \item{alt}{
-alternative allele.
-}
-  \qitem{N}{
-total sample size.
-}
- \item{missrate}{
-missing rate of variants.
-}
-  \item{altfreq}{
-alternative allele frequency.
-}
-  \item{SCORE}{
-the summary score of the alternaive allele.
-}
-  \item{VAL}{
-the variance of the summary score.
-}
-  \item{PVAL}{
-the p-value of the suammry score.
-}
+NULL. 
+\code{StocSum.svt.meta} will store the summary statistics and the statistics which to be used to calculate LD statistics in two files with the prefix specified by the user.
 }
 \references{
 %% ~put references to the literature/web site here ~
@@ -73,23 +43,28 @@ the p-value of the suammry score.
 Han Chen, Nannan Wang
 }
 \seealso{
-\code{glmmkin2randomvec}, \code{StocSum.pval},\code{StocSum.stat}, \code{StocSum.meta}
+\code{glmmkin2randomvec}, \code{StocSum.pval},\code{StocSum.stat}, \code{StocSum.svt}
 }
 \examples{
 \donttest{
-ibrary(GMMAT)
+library(GMMAT)
 data(example)
 attach(example)
-GRM.file <- system.file("extdata", "GRM.txt.bz2", package = "GMMAT")
+
+# run glmmkinrandomvec to generate the null model object
+GRM.file <- system.file(“extdata”, “GRM.txt.bz2”, package = “StocSum”)
 GRM <- as.matrix(read.table(GRM.file, check.names = FALSE))
-nullmod <- glmmkin(disease ~ age + sex, data = pheno, kins = GRM, id = "id", family = binomial(link = "logit"))
-obj <- glmmkin2randomvec(nullmod)
+nullmod <- glmmkin(disease ~ age + sex, data = pheno, kins = GRM, id = “id”, family = binomial(link = “logit”))
+obj <- glmmkin2randomvec(nullmod)}
 out.prefix <- "test"
 gdsfile <- system.file("extdata", "geno.gds", package = "GMMAT")
-StocSum.stat(obj, geno.file = gdsfile, meta.file.prefix = out.prefix, MAF.range=c(1e-7, 0.5), miss.cutoff = 1)
+
+# run StocSum.stat 
+StocSum.stat(obj, geno.file = gdsfile, meta.file.prefix = out.prefix,MAF.range=c(0,0.5), miss.cutoff = 1
+
 # run StocSum.svt
-out<-StocSum.svt(out.prefix, MAF.range=c(1e-7, 0.5), miss.cutoff = 1, auto.flip=F)
+out<-StocSum.svt(out.prefix, n.file=ncores, MAF.range=c(0,0.5), miss.cutoff = 1, auto.flip=F)
 }
 }
+\keyword{ meta-analysis }
 \keyword{ score test }
-\keyword{ generalized linear mixed model }

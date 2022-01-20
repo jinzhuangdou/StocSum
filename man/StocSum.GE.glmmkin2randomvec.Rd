@@ -1,5 +1,6 @@
-\name{glmmkin2randomvec}
-\alias{glmmkin2randomvec}
+%%%% Compared with glmmkin2randomvec, add obj$X to output, nessary for StocSum.GE.stat.R
+\name{StocSum.GE.glmmkin2randomvec}
+\alias{StocSum.GE.glmmkin2randomvec}
 \title{
 Generate random vectors from multivariate normal distribution with mean 0 and covariance matrix P
 }
@@ -65,13 +66,7 @@ attach(example)
 GRM.file <- system.file("extdata", "GRM.txt.bz2", package = "GMMAT")
 GRM <- as.matrix(read.table(GRM.file, check.names = FALSE))
 nullmod <- glmmkin(disease ~ age + sex, data = pheno, kins = GRM, id = "id", family = binomial(link = "logit"))
-
-if(!is.null(nullmod$P)){
-  obj <- glmmkin2randomvec(nullmod)
-}else{
-  kinship.chol <- chol(GRM)
-  obj<-glmmkin2randomvec(nullmod, Z = list(t(kinship.chol)))
-}
+obj <- StocSum.GE.glmmkin2randomvec(nullmod)
 }
 }
 \keyword{ random vector }

@@ -15,6 +15,7 @@ test_that("cross-sectional id le 400 binomial", {
   pheno <- pheno[pheno$id <= 400, ]
   kins <- example$GRM
   nullmod <- glmmkin(trait ~ age + sex, data = pheno, kins = kins, id = "id", family = gaussian(link = "identity"))
+  #variant set test
   if(is.null(nullmod$P)) {
     kinship <- kins[match(nullmod$id_include, rownames(kins)), match(nullmod$id_include, colnames(kins))]
     kinship.chol <- chol(kinship)
@@ -22,11 +23,15 @@ test_that("cross-sectional id le 400 binomial", {
   } else {
     obj <- glmmkin2randomvec(nullmod, Z = NULL, group.idx = NULL)
   }
-  out.prefix <- "test"
-  # out1 <- SMMAT(obj1, gdsfile, group.file, MAF.range = c(0, 0.5), miss.cutoff = 1, method = "davies")
+  out.prefix <- "test.vst"
   StocSum.stat(obj, geno.file = gdsfile, meta.file.prefix = out.prefix, MAF.range=c(0,0.5), miss.cutoff = 1)
-  out<-StocSum.pval(out.prefix, group.file = group.file, MAF.range=c(0,0.5), miss.cutoff = 1)
-    
+  #single variant test
+  out1 <- StocSum.svt(out.prefix, n.files = ncores, MAF.range=c(1e-7,0.5), miss.cutoff = 0.1, auto.flip=F)
+  #variant set test
+  out2 <- StocSum.pval(out.prefix, group.file = group.file, MAF.range=c(0,0.5), miss.cutoff = 1)
+  # #meta analysis
+  # out3 <- StocSum.pval(meta.files.prefix = out.prefix, group.file=File.SetID)
+  
   # expect_equal(signif(range(out$B.pval)), signif(c(0.1540811, 0.9500619)))
   # expect_equal(signif(range(out$E.pval)), signif(c(0.01675254, 0.76516832)))   
 })

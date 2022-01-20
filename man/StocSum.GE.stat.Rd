@@ -1,17 +1,23 @@
-\name{StocSum.stat}
-\alias{StocSum.stat}
+\name{StocSum.GE.stat}
+\alias{StocSum.GE.stat}
 \title{
-Calculate statistics
+Calculate summary statistics for gene-environment tests
 }
 \description{
-Calculate summary statistics and the statistics which can be used to reconstruct pairwise LD statistics.
+Calculate summary statistics and the statistics which can be used to reconstruct pairwise LD statistics in the context of gene-environment tests.
 }
 \usage{
-StocSum.stat(null.obj, geno.file, meta.file.prefix, MAF.range = c(1e-7, 0.5), miss.cutoff = 1, missing.method = "impute2mean", nperbatch = 10000, ncores = 1)
+StocSum.GE.stat(null.obj, interaction, interaction.covariates = NULL, geno.file, meta.file.prefix, MAF.range = c(1e-7, 0.5), miss.cutoff = 1, missing.method = "impute2mean", nperbatch = 10000, ncores = 1)
 }
 \arguments{
   \item{null.obj}{
 a class glmmkin.randomvec object, returned by generating random vectors using \code{glmmkin2randomvec}.
+}
+ \item{interaction}{
+a numeric or a character vector indicating the environmental factors. If a numberic vector, it represents which indices in the order of covariates are the environmental factors; if a character vector, it represents the variable names of the environmental factors.
+}
+ \item{interaction.covariates}{
+a numeric or a character vector indicating the interaction covariates. If a numeric vector, it represents which indices in the order of covariates are the interaction covariates; if a character vector, it represents the variable names of the interaction covariates.
 }
   \item{geno.file}{
 the .gds file name or an object of class SeqVarGDSClass for the full genotypes. The \code{sample.id} in \code{geno.file} should overlap \code{id_include} in \code{null.obj}. It is recommended that \code{sample.id} in \code{geno.file} include the full samples (at least all samples as specified in \code{id_include} of \code{null.obj}). It is not necessary for the user to take a subset of \code{geno.file} before running the analysis. If \code{geno.file} is an object of class SeqVarGDSClass, the .gds file will be closed upon successful completion of the function.
@@ -48,26 +54,22 @@ NULL.
 Han Chen, Nannan Wang
 }
 \seealso{
-\code{glmmkin2randomvec}, \code{StocSum.pval}, 
+\code{glmmkin2randomvec}, \code{StocSum.GE.pval}, 
 }
 \examples{
 \donttest{
-
 library(GMMAT)
 data(example)
 attach(example)
-# run glmmkin2randomvec to generate the random vectors 
 GRM.file <- system.file("extdata", "GRM.txt.bz2", package = "GMMAT")
 GRM <- as.matrix(read.table(GRM.file, check.names = FALSE))
 nullmod <- glmmkin(disease ~ age + sex, data = pheno, kins = GRM, id = "id", family = binomial(link = "logit"))
 obj <- glmmkin2randomvec(nullmod)
-
-out.prefix <- "test"
+out.prefix <- "test.GE"
 gdsfile <- system.file("extdata", "geno.gds", package = "GMMAT")
-
-# run StocSum.stat 
-StocSum.stat(obj, geno.file = gdsfile, meta.file.prefix = out.prefix,MAF.range=c(0,0.5), miss.cutoff = 1)
-
+group.file <- system.file("extdata", "SetID.withweights.txt", package = "GMMAT")
+StocSum.GE.stat(obj, interaction='sex', geno.file = gdsfile, meta.file.prefix = out.prefix)
 }
 }
 \keyword{ summary statics }
+\keyword{ gene-environment tests }

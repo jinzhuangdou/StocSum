@@ -1,44 +1,44 @@
 # modified from GMMAT v1.1.0
 # 20201204: implemented group.idx for heteroscedastic linear mixed models
-# 	    added single variant tests
+#       added single variant tests
 # 20201209: switched to eigen() when svd() fails
 
-glmmkin2randomvec <- function(obj, Z = NULL, N.randomvec = 1000, group.idx=NULL,cluster.idx=NULL,robust = FALSE) {
-        if(class(obj) != "glmmkin") stop("Error: \"obj\" must be a class glmmkin object.")
-	N <- length(obj$id_include)
-       	random.vectors <- matrix(rnorm(N*N.randomvec),nrow=N,ncol=N.randomvec)
-	if(!is.null(obj$P) && !robust) {
-        	eig <- eigen(obj$P, symmetric = TRUE)
-        	random.vectors <- tcrossprod(eig$vectors, t(random.vectors * sqrt(pmax(eig$values, 0))))
-        	rm(eig)
-	} else {
-	        if(obj$n.groups != 1 && (is.null(group.idx) || !all.equal(seq_len(obj$n.groups), sort(unique(group.idx))))) stop("Error: heteroscedastic linear mixed models should include a valid group.idx argument.")
-		if(is.null(group.idx)) group.idx <- rep(1, N)
-		if(!robust) random.vectors <- sqrt(obj$theta[group.idx]) * random.vectors
-#		else random.vectors <- random.vectors * abs(obj$residuals)
-		else {
-			res <- as.numeric(obj$Y - tcrossprod(obj$X, t(obj$coefficient)))
-			if(is.null(cluster.idx)) random.vectors <- random.vectors * res
-			else random.vectors <- random.vectors[match(cluster.idx,unique(cluster.idx)),] * res
-	        }
-		if(!is.null(Z)) {
-			if(class(Z) != "list") stop("Error: \"Z\" must be a list of matrices.")
-			if(length(Z) != length(obj$theta) - obj$n.groups) stop("Error: number of matrices in \"Z\" does not match the number of variance components in \"obj\".")
-			for(i in 1:length(Z)) {
-			      	if(nrow(Z[[i]]) != N) stop("Error: \"Z\" matrix ", i, " is not compatible in sample size with \"obj\".")
-				p <- ncol(Z[[i]])
-				if(obj$theta[i+obj$n.groups] < 0) stop("Error: negative variance component estimates are not allowed.")
-				if(obj$theta[i+obj$n.groups] == 0) next
-				random.vectors2 <- matrix(rnorm(p*N.randomvec), nrow=N.randomvec, ncol=p)
-				random.vectors <- random.vectors + sqrt(obj$theta[i+obj$n.groups]) * tcrossprod(Z[[i]], random.vectors2)
-			}
-		}
-		if(!is.null(obj$P)) random.vectors <- crossprod(obj$P, random.vectors)
-		else random.vectors <- crossprod(obj$Sigma_i, random.vectors) - tcrossprod(obj$Sigma_iX, tcrossprod(crossprod(random.vectors, obj$Sigma_iX), obj$cov))
-	}
-       	out <- list(theta = obj$theta, scaled.residuals = obj$scaled.residuals, random.vectors = as.matrix(random.vectors), id_include = obj$id_include)
-       	class(out) <- "glmmkin.randomvec"
-       	return(out)
+glmmkin2randomvec <- function(obj, Z = NULL, N.randomvec = 1000, group.idx=NULL, cluster.idx=NULL, robust = FALSE) {
+    if(class(obj) != "glmmkin") stop("Error: \"obj\" must be a class glmmkin object.")
+    N <- length(obj$id_include)
+    random.vectors <- matrix(rnorm(N*N.randomvec),nrow=N,ncol=N.randomvec)
+    if(!is.null(obj$P) && !robust) {
+        eig <- eigen(obj$P, symmetric = TRUE)
+        random.vectors <- tcrossprod(eig$vectors, t(random.vectors * sqrt(pmax(eig$values, 0))))
+        rm(eig)
+    } else {
+        if(obj$n.groups != 1 && (is.null(group.idx) || !all.equal(seq_len(obj$n.groups), sort(unique(group.idx))))) stop("Error: heteroscedastic linear mixed models should include a valid group.idx argument.")
+        if(is.null(group.idx)) group.idx <- rep(1, N)
+        if(!robust) random.vectors <- sqrt(obj$theta[group.idx]) * random.vectors
+#       else random.vectors <- random.vectors * abs(obj$residuals)
+        else {
+            res <- as.numeric(obj$Y - tcrossprod(obj$X, t(obj$coefficient)))
+            if(is.null(cluster.idx)) random.vectors <- random.vectors * res
+            else random.vectors <- random.vectors[match(cluster.idx, unique(cluster.idx)),] * res
+        }
+        if(!is.null(Z)) {
+            if(class(Z) != "list") stop("Error: \"Z\" must be a list of matrices.")
+            if(length(Z) != length(obj$theta) - obj$n.groups) stop("Error: number of matrices in \"Z\" does not match the number of variance components in \"obj\".")
+            for(i in 1:length(Z)) {
+                if(nrow(Z[[i]]) != N) stop("Error: \"Z\" matrix ", i, " is not compatible in sample size with \"obj\".")
+                p <- ncol(Z[[i]])
+                if(obj$theta[i+obj$n.groups] < 0) stop("Error: negative variance component estimates are not allowed.")
+                if(obj$theta[i+obj$n.groups] == 0) next
+                random.vectors2 <- matrix(rnorm(p*N.randomvec), nrow=N.randomvec, ncol=p)
+                random.vectors <- random.vectors + sqrt(obj$theta[i+obj$n.groups]) * tcrossprod(Z[[i]], random.vectors2)
+            }
+        }
+        if(!is.null(obj$P)) random.vectors <- crossprod(obj$P, random.vectors)
+        else random.vectors <- crossprod(obj$Sigma_i, random.vectors) - tcrossprod(obj$Sigma_iX, tcrossprod(crossprod(random.vectors, obj$Sigma_iX), obj$cov))
+    }
+    out <- list(theta = obj$theta, scaled.residuals = obj$scaled.residuals, random.vectors = as.matrix(random.vectors), id_include = obj$id_include)
+    class(out) <- "glmmkin.randomvec"
+    return(out)
 }
 
 StocSum.stat <- function(null.obj, geno.file, meta.file.prefix, MAF.range = c(1e-7, 0.5), miss.cutoff = 1, missing.method = "impute2mean", nperbatch = 10000, ncores = 1)
@@ -53,11 +53,11 @@ StocSum.stat <- function(null.obj, geno.file, meta.file.prefix, MAF.range = c(1e
     if(any(duplicated(null.obj$id_include))) {
         J <- sapply(unique(null.obj$id_include), function(x) 1*(null.obj$id_include==x))
         residuals <- crossprod(J, null.obj$scaled.residuals)
-	residuals2 <- crossprod(J, null.obj$random.vectors)
+        residuals2 <- crossprod(J, null.obj$random.vectors)
         rm(J)
     } else {
         residuals <- null.obj$scaled.residuals
-	residuals2 <- null.obj$random.vectors
+        residuals2 <- null.obj$random.vectors
     }
     if(!grepl("\\.gds$", geno.file)) stop("Error: currently only .gds format is supported in geno.file!")
     gds <- SeqArray::seqOpen(geno.file)
@@ -73,10 +73,10 @@ StocSum.stat <- function(null.obj, geno.file, meta.file.prefix, MAF.range = c(1e
     p.all <- length(variant.idx.all)
     ncores <- min(c(ncores, parallel::detectCores(logical = TRUE)))
     if(ncores > 1) {
-    	doMC::registerDoMC(cores = ncores)
+        doMC::registerDoMC(cores = ncores)
         p.percore <- (p.all-1) %/% ncores + 1
         n.p.percore_1 <- p.percore * ncores - p.all
-    	foreach(b=1:ncores, .inorder=FALSE, .options.multicore = list(preschedule = FALSE, set.seed = FALSE)) %dopar% {
+        foreach(b=1:ncores, .inorder=FALSE, .options.multicore = list(preschedule = FALSE, set.seed = FALSE)) %dopar% {
             variant.idx <- if(b <= n.p.percore_1) variant.idx.all[((b-1)*(p.percore-1)+1):(b*(p.percore-1))] else variant.idx.all[(n.p.percore_1*(p.percore-1)+(b-n.p.percore_1-1)*p.percore+1):(n.p.percore_1*(p.percore-1)+(b-n.p.percore_1)*p.percore)]
             p <- length(variant.idx)
             if(.Platform$endian!="little") stop("Error: platform must be little endian.")
@@ -123,7 +123,7 @@ StocSum.stat <- function(null.obj, geno.file, meta.file.prefix, MAF.range = c(1e
             }
             SeqArray::seqClose(gds)
             close(meta.file.resample.handle)
-	}
+    }
     } else { # use a single core
         variant.idx <- variant.idx.all
         rm(variant.idx.all)
@@ -176,39 +176,39 @@ StocSum.stat <- function(null.obj, geno.file, meta.file.prefix, MAF.range = c(1e
     return(invisible(NULL))
 }
 
-StocSum.meta <- function(meta.files.prefix, n.files = rep(1, length(meta.files.prefix)), outfile.prefix, MAF.range = c(1e-7, 0.5), miss.cutoff = 1, auto.flip = FALSE, nperbatch = 10000)
+StocSum.svt.meta <- function(meta.files.prefix, n.files = rep(1, length(meta.files.prefix)), outfile.prefix, MAF.range = c(1e-7, 0.5), miss.cutoff = 1, auto.flip = FALSE, nperbatch = 10000)
 {
     if(.Platform$endian!="little") stop("Error: platform must be little endian.")
     n.cohort <- length(meta.files.prefix)
     if(length(n.files) != n.cohort) stop("Error: numbers of cohorts specified in meta.files.prefix and n.files do not match.")
     group.info <- NULL
     for(i in 1:n.cohort) {
-	for(j in 1:n.files[i]) {
-	    tmp <- try(read.table(paste0(meta.files.prefix[i], ".sample.", j), header = TRUE, as.is = TRUE))
-    	    if (class(tmp) == "try-error") {
+        for(j in 1:n.files[i]) {
+            tmp <- try(read.table(paste0(meta.files.prefix[i], ".sample.", j), header = TRUE, as.is = TRUE))
+            if (class(tmp) == "try-error") {
                 stop(paste0("Error: cannot read ", meta.files.prefix[i], ".sample.", j, "!"))
-    	    }
-	    tmp <- tmp[,c("SNP", "chr", "pos", "ref", "alt")]
+            }
+            tmp <- tmp[,c("SNP", "chr", "pos", "ref", "alt")]
             tmp$snpid <- paste(tmp$chr, tmp$pos, tmp$ref, tmp$alt, sep = ":")
-	    tmp <- tmp[!duplicated(tmp$snpid), , drop = FALSE]
-	    if(auto.flip) {
-   	      	snpid2 <- paste(tmp$chr, tmp$pos, tmp$alt, tmp$ref, sep = ":")
-		match.snpid <- match(snpid2, tmp$snpid)
-		tmp <- tmp[is.na(match.snpid) | match.snpid > 1:length(match.snpid), , drop = FALSE]
-		snpid2 <- snpid2[is.na(match.snpid) | match.snpid > 1:length(match.snpid)]
-		rm(match.snpid)
-	    }
-	    if(!is.null(group.info)) {
-	    	if(auto.flip) {
-		    tmp <- subset(tmp, !snpid %in% group.info$snpid & !snpid2 %in% group.info$snpid)
-		    rm(snpid2)
-	    	} else tmp <- subset(tmp, !snpid %in% group.info$snpid)
-	    } else if(auto.flip) {
-   	      	rm(snpid2)
-	    }
-	    if(nrow(tmp) > 0) group.info <- rbind(group.info, tmp)
-	    rm(tmp)
-	}
+            tmp <- tmp[!duplicated(tmp$snpid), , drop = FALSE]
+            if(auto.flip) {
+                snpid2 <- paste(tmp$chr, tmp$pos, tmp$alt, tmp$ref, sep = ":")
+                match.snpid <- match(snpid2, tmp$snpid)
+                tmp <- tmp[is.na(match.snpid) | match.snpid > 1:length(match.snpid), , drop = FALSE]
+                snpid2 <- snpid2[is.na(match.snpid) | match.snpid > 1:length(match.snpid)]
+                rm(match.snpid)
+            }
+            if(!is.null(group.info)) {
+                if(auto.flip) {
+                    tmp <- subset(tmp, !snpid %in% group.info$snpid & !snpid2 %in% group.info$snpid)
+                    rm(snpid2)
+                } else tmp <- subset(tmp, !snpid %in% group.info$snpid)
+            } else if(auto.flip) {
+                rm(snpid2)
+            }
+            if(nrow(tmp) > 0) group.info <- rbind(group.info, tmp)
+            rm(tmp)
+        }
     }
     group.info <- group.info[order(group.info$chr, group.info$pos), ]
     p <- nrow(group.info)
@@ -222,12 +222,12 @@ StocSum.meta <- function(meta.files.prefix, n.files = rep(1, length(meta.files.p
     }
     for(i in 1:n.cohort) {
         tmp.scores <- NULL
-	for(j in 1:n.files[i]) {
-	    tmp <- try(read.table(paste0(meta.files.prefix[i], ".sample.", j), header = TRUE, as.is = TRUE))
-    	    if (class(tmp) == "try-error") {
+        for(j in 1:n.files[i]) {
+            tmp <- try(read.table(paste0(meta.files.prefix[i], ".sample.", j), header = TRUE, as.is = TRUE))
+            if (class(tmp) == "try-error") {
                 stop(paste0("Error: cannot read ", meta.files.prefix[i], ".sample.", j, "!"))
-    	    }
-	    tmp <- tmp[,c("chr", "pos", "ref", "alt", "N", "missrate", "altfreq", "SCORE")]
+            }
+            tmp <- tmp[,c("chr", "pos", "ref", "alt", "N", "missrate", "altfreq", "SCORE")]
             tmp$variant.idx <- 1:nrow(tmp)
             variant.id <- paste(tmp$chr, tmp$pos, tmp$ref, tmp$alt, sep = ":")
             variant.idx1 <- variant.id %in% variant.id1
@@ -256,12 +256,12 @@ StocSum.meta <- function(meta.files.prefix, n.files = rep(1, length(meta.files.p
                 tmp <- tmp[variant.idx1, ]
             }
             tmp$file <- j
-	    tmp.scores <- rbind(tmp.scores, tmp)
-	    rm(tmp)
-	}
-	scores[[i]] <- cbind(group.info, tmp.scores[match(variant.id1, paste(tmp.scores$chr, tmp.scores$pos, tmp.scores$ref, tmp.scores$alt, sep = ":")), c("N", "missrate", "altfreq", "SCORE", "file", "variant.idx", "flip")])
-	rm(tmp.scores)
-	cons[[i]] <- file(paste0(meta.files.prefix[i], ".resample.1"), "rb")
+            tmp.scores <- rbind(tmp.scores, tmp)
+            rm(tmp)
+        }
+        scores[[i]] <- cbind(group.info, tmp.scores[match(variant.id1, paste(tmp.scores$chr, tmp.scores$pos, tmp.scores$ref, tmp.scores$alt, sep = ":")), c("N", "missrate", "altfreq", "SCORE", "file", "variant.idx", "flip")])
+        rm(tmp.scores)
+        cons[[i]] <- file(paste0(meta.files.prefix[i], ".resample.1"), "rb")
         N.resampling[i] <- readBin(cons[[i]], what = "integer", n = 1, size = 4)
     }
     minN <- min(N.resampling)
@@ -274,10 +274,10 @@ StocSum.meta <- function(meta.files.prefix, n.files = rep(1, length(meta.files.p
     nbatch.flush <- (p-1) %/% nperbatch + 1
     for(i in 1:nbatch.flush) {
         tmp.idx <- if(i == nbatch.flush) group.info$idx[((i-1)*nperbatch+1):p] else group.info$idx[((i-1)*nperbatch+1):(i*nperbatch)]
-	#tmp.group.info <- group.info[tmp.idx, , drop = FALSE]
-	U.list <- V.list <- vector("list", n.cohort)
-	variant.indices <- tmp.N <- tmp.Nmiss <- tmp.AC <- c()
-	for(j in 1:n.cohort) {
+        #tmp.group.info <- group.info[tmp.idx, , drop = FALSE]
+        U.list <- V.list <- vector("list", n.cohort)
+        variant.indices <- tmp.N <- tmp.Nmiss <- tmp.AC <- c()
+        for(j in 1:n.cohort) {
             tmp.scores <- scores[[j]][tmp.idx, , drop = FALSE]
             if(any(tmp.include <- !is.na(tmp.scores$SCORE))) {
                 U.list[[j]] <- tmp.scores[tmp.include, , drop = FALSE]
@@ -328,7 +328,7 @@ StocSum.meta <- function(meta.files.prefix, n.files = rep(1, length(meta.files.p
                 V[IDX, ] <- V[IDX, , drop = FALSE]+V.list[[j]][IDX2, 1:minN, drop = FALSE]
             }
         }
-	out$SCORE <- U
+        out$SCORE <- U
         write.table(out[,c("SNP", "chr", "pos", "ref", "alt", "N", "missrate", "altfreq", "SCORE")], meta.file.sample, quote=FALSE, row.names=FALSE, col.names=FALSE, append=TRUE, na=".")
         writeBin(as.numeric(t(V)), meta.file.resample.handle, size = 4)
         rm(out)
@@ -345,32 +345,32 @@ StocSum.svt <- function(meta.files.prefix, n.files = rep(1, length(meta.files.pr
     if(length(n.files) != n.cohort) stop("Error: numbers of cohorts specified in meta.files.prefix and n.files do not match.")
     group.info <- NULL
     for(i in 1:n.cohort) {
-	for(j in 1:n.files[i]) {
-	    tmp <- try(read.table(paste0(meta.files.prefix[i], ".sample.", j), header = TRUE, as.is = TRUE))
-    	    if (class(tmp) == "try-error") {
+        for(j in 1:n.files[i]) {
+            tmp <- try(read.table(paste0(meta.files.prefix[i], ".sample.", j), header = TRUE, as.is = TRUE))
+            if (class(tmp) == "try-error") {
                 stop(paste0("Error: cannot read ", meta.files.prefix[i], ".sample.", j, "!"))
-    	    }
-	    tmp <- tmp[,c("SNP", "chr", "pos", "ref", "alt")]
+            }
+            tmp <- tmp[,c("SNP", "chr", "pos", "ref", "alt")]
             tmp$snpid <- paste(tmp$chr, tmp$pos, tmp$ref, tmp$alt, sep = ":")
-	    tmp <- tmp[!duplicated(tmp$snpid), , drop = FALSE]
-	    if(auto.flip) {
-   	      	snpid2 <- paste(tmp$chr, tmp$pos, tmp$alt, tmp$ref, sep = ":")
-		match.snpid <- match(snpid2, tmp$snpid)
-		tmp <- tmp[is.na(match.snpid) | match.snpid > 1:length(match.snpid), , drop = FALSE]
-		snpid2 <- snpid2[is.na(match.snpid) | match.snpid > 1:length(match.snpid)]
-		rm(match.snpid)
-	    }
-	    if(!is.null(group.info)) {
-	    	if(auto.flip) {
-		    tmp <- subset(tmp, !snpid %in% group.info$snpid & !snpid2 %in% group.info$snpid)
-		    rm(snpid2)
-	    	} else tmp <- subset(tmp, !snpid %in% group.info$snpid)
-	    } else if(auto.flip) {
-   	      	rm(snpid2)
-	    }
-	    if(nrow(tmp) > 0) group.info <- rbind(group.info, tmp)
-	    rm(tmp)
-	}
+            tmp <- tmp[!duplicated(tmp$snpid), , drop = FALSE]
+            if(auto.flip) {
+                snpid2 <- paste(tmp$chr, tmp$pos, tmp$alt, tmp$ref, sep = ":")
+                match.snpid <- match(snpid2, tmp$snpid)
+                tmp <- tmp[is.na(match.snpid) | match.snpid > 1:length(match.snpid), , drop = FALSE]
+                snpid2 <- snpid2[is.na(match.snpid) | match.snpid > 1:length(match.snpid)]
+                rm(match.snpid)
+            }
+            if(!is.null(group.info)) {
+                if(auto.flip) {
+                    tmp <- subset(tmp, !snpid %in% group.info$snpid & !snpid2 %in% group.info$snpid)
+                    rm(snpid2)
+                } else tmp <- subset(tmp, !snpid %in% group.info$snpid)
+            } else if(auto.flip) {
+                rm(snpid2)
+            }
+            if(nrow(tmp) > 0) group.info <- rbind(group.info, tmp)
+            rm(tmp)
+        }
     }
     group.info <- group.info[order(group.info$chr, group.info$pos), ]
     p <- nrow(group.info)
@@ -384,12 +384,12 @@ StocSum.svt <- function(meta.files.prefix, n.files = rep(1, length(meta.files.pr
     }
     for(i in 1:n.cohort) {
         tmp.scores <- NULL
-	for(j in 1:n.files[i]) {
-	    tmp <- try(read.table(paste0(meta.files.prefix[i], ".sample.", j), header = TRUE, as.is = TRUE))
-    	    if (class(tmp) == "try-error") {
+        for(j in 1:n.files[i]) {
+            tmp <- try(read.table(paste0(meta.files.prefix[i], ".sample.", j), header = TRUE, as.is = TRUE))
+            if (class(tmp) == "try-error") {
                 stop(paste0("Error: cannot read ", meta.files.prefix[i], ".sample.", j, "!"))
-    	    }
-	    tmp <- tmp[,c("chr", "pos", "ref", "alt", "N", "missrate", "altfreq", "SCORE")]
+            }
+            tmp <- tmp[,c("chr", "pos", "ref", "alt", "N", "missrate", "altfreq", "SCORE")]
             tmp$variant.idx <- 1:nrow(tmp)
             variant.id <- paste(tmp$chr, tmp$pos, tmp$ref, tmp$alt, sep = ":")
             variant.idx1 <- variant.id %in% variant.id1
@@ -418,12 +418,12 @@ StocSum.svt <- function(meta.files.prefix, n.files = rep(1, length(meta.files.pr
                 tmp <- tmp[variant.idx1, ]
             }
             tmp$file <- j
-	    tmp.scores <- rbind(tmp.scores, tmp)
-	    rm(tmp)
-	}
-	scores[[i]] <- cbind(group.info, tmp.scores[match(variant.id1, paste(tmp.scores$chr, tmp.scores$pos, tmp.scores$ref, tmp.scores$alt, sep = ":")), c("N", "missrate", "altfreq", "SCORE", "file", "variant.idx", "flip")])
-	rm(tmp.scores)
-	cons[[i]] <- file(paste0(meta.files.prefix[i], ".resample.1"), "rb")
+            tmp.scores <- rbind(tmp.scores, tmp)
+            rm(tmp)
+        }
+        scores[[i]] <- cbind(group.info, tmp.scores[match(variant.id1, paste(tmp.scores$chr, tmp.scores$pos, tmp.scores$ref, tmp.scores$alt, sep = ":")), c("N", "missrate", "altfreq", "SCORE", "file", "variant.idx", "flip")])
+        rm(tmp.scores)
+        cons[[i]] <- file(paste0(meta.files.prefix[i], ".resample.1"), "rb")
         N.resampling[i] <- readBin(cons[[i]], what = "integer", n = 1, size = 4)
     }
     current.lines <- current.cons <- rep(1, n.cohort)
@@ -431,10 +431,10 @@ StocSum.svt <- function(meta.files.prefix, n.files = rep(1, length(meta.files.pr
     all.out <- NULL
     for(i in 1:nbatch.flush) {
         tmp.idx <- if(i == nbatch.flush) group.info$idx[((i-1)*nperbatch+1):p] else group.info$idx[((i-1)*nperbatch+1):(i*nperbatch)]
-	#tmp.group.info <- group.info[tmp.idx, , drop = FALSE]
-	U.list <- V.list <- vector("list", n.cohort)
-	variant.indices <- tmp.N <- tmp.Nmiss <- tmp.AC <- c()
-	for(j in 1:n.cohort) {
+        #tmp.group.info <- group.info[tmp.idx, , drop = FALSE]
+        U.list <- V.list <- vector("list", n.cohort)
+        variant.indices <- tmp.N <- tmp.Nmiss <- tmp.AC <- c()
+        for(j in 1:n.cohort) {
             tmp.scores <- scores[[j]][tmp.idx, , drop = FALSE]
             if(any(tmp.include <- !is.na(tmp.scores$SCORE))) {
                 U.list[[j]] <- tmp.scores[tmp.include, , drop = FALSE]
@@ -485,10 +485,10 @@ StocSum.svt <- function(meta.files.prefix, n.files = rep(1, length(meta.files.pr
                 V[IDX, (sum(N.resampling[1:j])-N.resampling[j]+1):sum(N.resampling[1:j])] <- V[IDX,(sum(N.resampling[1:j])-N.resampling[j]+1):sum(N.resampling[1:j])]+V.list[[j]][IDX2,]
             }
         }
-	out$SCORE <- U
-	out$VAR <- rowSums(V^2)
-	out$PVAL <- pchisq(out$SCORE^2/out$VAR, 1, lower = FALSE)
-	all.out <- rbind(all.out, out)
+        out$SCORE <- U
+        out$VAR <- rowSums(V^2)
+        out$PVAL <- pchisq(out$SCORE^2/out$VAR, 1, lower = FALSE)
+        all.out <- rbind(all.out, out)
     }
     for(i in 1:n.cohort) close(cons[[i]])
     return(all.out)
@@ -501,8 +501,8 @@ StocSum.pval <- function(meta.files.prefix, n.files = rep(1, length(meta.files.p
     if(length(n.files) != n.cohort) stop("Error: numbers of cohorts specified in meta.files.prefix and n.files do not match.")
     if(!is.null(cohort.group.idx)) {
         if(length(cohort.group.idx) != n.cohort) stop("Error: numbers of cohorts specified in meta.files.prefix and cohort.group.idx do not match.")
-	cohort.group.idx <- as.numeric(factor(cohort.group.idx))
-	n.cohort.groups <- length(unique(cohort.group.idx))
+        cohort.group.idx <- as.numeric(factor(cohort.group.idx))
+        n.cohort.groups <- length(unique(cohort.group.idx))
     }
     if(any(!tests %in% c("B", "S", "O", "E"))) stop("Error: \"tests\" should only include \"B\" for the burden test, \"S\" for SKAT, \"O\" for SKAT-O or \"E\" for the efficient hybrid test of the burden test and SKAT.")
     Burden <- "B" %in% tests
@@ -532,12 +532,12 @@ StocSum.pval <- function(meta.files.prefix, n.files = rep(1, length(meta.files.p
     }
     for(i in 1:n.cohort) {
         tmp.scores <- NULL
-	for(j in 1:n.files[i]) {
-	    tmp <- try(read.table(paste0(meta.files.prefix[i], ".sample.", j), header = TRUE, as.is = TRUE))
-    	    if (class(tmp) == "try-error") {
+        for(j in 1:n.files[i]) {
+            tmp <- try(read.table(paste0(meta.files.prefix[i], ".sample.", j), header = TRUE, as.is = TRUE))
+            if (class(tmp) == "try-error") {
                 stop(paste0("Error: cannot read ", meta.files.prefix[i], ".sample.", j, "!"))
-    	    }
-	    tmp <- tmp[,c("chr", "pos", "ref", "alt", "N", "missrate", "altfreq", "SCORE")]
+            }
+            tmp <- tmp[,c("chr", "pos", "ref", "alt", "N", "missrate", "altfreq", "SCORE")]
             tmp$variant.idx <- 1:nrow(tmp)
             variant.id <- paste(tmp$chr, tmp$pos, tmp$ref, tmp$alt, sep = ":")
             variant.idx1 <- variant.id %in% variant.id1
@@ -566,34 +566,34 @@ StocSum.pval <- function(meta.files.prefix, n.files = rep(1, length(meta.files.p
                 tmp <- tmp[variant.idx1, ]
             }
             tmp$file <- j
-	    tmp.scores <- rbind(tmp.scores, tmp)
-	    rm(tmp)
-	}
-	scores[[i]] <- cbind(group.info, tmp.scores[match(variant.id1, paste(tmp.scores$chr, tmp.scores$pos, tmp.scores$ref, tmp.scores$alt, sep = ":")), c("N", "missrate", "altfreq", "SCORE", "file", "variant.idx", "flip")])
-	rm(tmp.scores)
-	cons[[i]] <- file(paste0(meta.files.prefix[i], ".resample.1"), "rb")
+            tmp.scores <- rbind(tmp.scores, tmp)
+            rm(tmp)
+        }
+        scores[[i]] <- cbind(group.info, tmp.scores[match(variant.id1, paste(tmp.scores$chr, tmp.scores$pos, tmp.scores$ref, tmp.scores$alt, sep = ":")), c("N", "missrate", "altfreq", "SCORE", "file", "variant.idx", "flip")])
+        rm(tmp.scores)
+        cons[[i]] <- file(paste0(meta.files.prefix[i], ".resample.1"), "rb")
         N.resampling[i] <- readBin(cons[[i]], what = "integer", n = 1, size = 4)
     }
     n.variants <- rep(0,n.groups)
     if(Burden | SKATO | SMMAT) {
-	Burden.score <- rep(NA, n.groups)
-    	Burden.var <- rep(NA, n.groups)
-    	Burden.pval <- rep(NA, n.groups)
+        Burden.score <- rep(NA, n.groups)
+        Burden.var <- rep(NA, n.groups)
+        Burden.pval <- rep(NA, n.groups)
     }
     if(SKAT | SKATO) SKAT.pval <- rep(NA, n.groups)
     if(SKATO) {
-	SKATO.pval <- rep(NA, n.groups)
-	SKATO.minp <- rep(NA, n.groups)
-	SKATO.minp.rho <- rep(NA, n.groups)
+        SKATO.pval <- rep(NA, n.groups)
+        SKATO.minp <- rep(NA, n.groups)
+        SKATO.minp.rho <- rep(NA, n.groups)
     }
     if(SMMAT) SMMAT.pval <- rep(NA, n.groups)
     current.lines <- current.cons <- rep(1, n.cohort)
     for(i in 1:n.groups) {
         tmp.idx <- group.idx.start[i]:group.idx.end[i]
-	#tmp.group.info <- group.info[tmp.idx, , drop = FALSE]
-	U.list <- V.list <- vector("list", n.cohort)
-	variant.indices <- tmp.N <- tmp.Nmiss <- tmp.AC <- c()
-	for(j in 1:n.cohort) {
+        #tmp.group.info <- group.info[tmp.idx, , drop = FALSE]
+        U.list <- V.list <- vector("list", n.cohort)
+        variant.indices <- tmp.N <- tmp.Nmiss <- tmp.AC <- c()
+        for(j in 1:n.cohort) {
             tmp.scores <- scores[[j]][tmp.idx, , drop = FALSE]
             if(any(tmp.include <- !is.na(tmp.scores$SCORE))) {
                 U.list[[j]] <- tmp.scores[tmp.include, , drop = FALSE]
@@ -670,7 +670,7 @@ StocSum.pval <- function(meta.files.prefix, n.files = rep(1, length(meta.files.p
         } else {
             if(SKATO) {
                 re <- try(.skato_Vpval(U = U, V = V, rho = rho, method = method))
-		if(class(re)[1] != "try-error") {
+                if(class(re)[1] != "try-error") {
                     Burden.score[i] <- re$Burden.score
                     Burden.var[i] <- re$Burden.var
                     Burden.pval[i] <- re$Burden.pval
@@ -678,7 +678,7 @@ StocSum.pval <- function(meta.files.prefix, n.files = rep(1, length(meta.files.p
                     SKATO.pval[i] <-re$p
                     SKATO.minp[i] <- re$minp
                     SKATO.minp.rho[i] <- re$minp.rho
-		}
+                }
             } else {
                 if(SKAT) SKAT.pval[i] <- tryCatch(.quad_Vpval(U = U, V = V, method = method), error = function(e) { NA })
                 if(Burden | SMMAT) {
@@ -736,7 +736,7 @@ StocSum.pval <- function(meta.files.prefix, n.files = rep(1, length(meta.files.p
             R.M.chol <- t(chol(R.M, pivot = TRUE))
             V.temp <- crossprod(R.M.chol, V)
         } else V.temp <- V
-	V.temp.svd <- try(svd(V.temp))
+    V.temp.svd <- try(svd(V.temp))
         if(class(V.temp.svd)[1] == "try-error") {
             dim1 <- nrow(V.temp)
             dim2 <- ncol(V.temp)
@@ -782,11 +782,11 @@ StocSum.pval <- function(meta.files.prefix, n.files = rep(1, length(meta.files.p
     if(method == "davies") {
         tmp <- suppressWarnings(CompQuadForm::davies(q = Q, lambda = lambda, acc = 1e-6))
         pval <- tmp$Qq
-	if((tmp$ifault > 0) | (pval <= 1e-5) | (pval >= 1)) method <- "kuonen"
+    if((tmp$ifault > 0) | (pval <= 1e-5) | (pval >= 1)) method <- "kuonen"
     }
     if(method == "kuonen") {
-    	pval <- .pKuonen(x = Q, lambda = lambda)
-	if(is.na(pval)) method <- "liu"
+        pval <- .pKuonen(x = Q, lambda = lambda)
+    if(is.na(pval)) method <- "liu"
     }
     if(method == "liu") pval <- CompQuadForm::liu(q = Q, lambda = lambda)
     return(pval)
