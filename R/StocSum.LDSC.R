@@ -1,9 +1,33 @@
-# modified from GMMAT v1.1.0
-# 20201204: implemented group.idx for heteroscedastic linear mixed models
-# 	    added single variant tests
-# 20201209: switched to eigen() when svd() fails
+#' Create random vectors for a glmmkin object for LD Score regresion
+#' @description Generate random vectors from multivariate normal distribution with mean 0 and covariance matrix P, in which \eqn P = I-1inv((t(1)1))t(1).
+#' @param obj The glmmkin object.
+#' @param Z NULL. %% A list of design matrices for the random effects. The length must match the number of variance components.
+#' @param N.randomvec The number of random vectors to generate (default = 1000).
+#' @param group.idx NULL. %%A length N index vector showing which observation belongs to which variance group, for heteroscedastic linear mixed models (default = NULL for homoscedastic linear mixed models).
+#' @param cluster.idx NULL. %% A length N index vector showing which observation belongs to which cluster (default = NULL for no clusters).
+#' @param robust FALSE. %% A logical switch: whether robust variance should be used (default = FALSE).
+#' @return A list of class glmmkin.randomvec
+#' \item{theta}{ set to be 1. %% Variance estimates, inherited from the glmmkin object.}
+#' \item{scaled.residuals}{Scaled residuals, inherited from the glmmkin object.}
+#' \item{random.vectors}{An N by N.randomvec matrix of the random vectors generated.}
+#' \item{X}{model matrix for the fixed effects from the glmmkin object}
+#' \item{id_include}{The ID vector of included samples, inherited from the glmmkin object.}
+#' @reference 
+#' @author Han Chen, Nannan Wang
+#' @examples
+#' \donttest{
+#' library(GMMAT)
+#' data(example)
+#' attach(example)
+#' GRM.file <- system.file("extdata", "GRM.txt.bz2", package = "GMMAT")
+#' GRM <- as.matrix(read.table(GRM.file, check.names = FALSE))
+#' nullmod <- glmmkin(disease ~ age + sex, data = pheno, kins = GRM, id = "id", family = binomial(link = "logit"))
+#' obj <- LDSC.glmmkin2randomvec(nullmod)
+#' }
+#' @keywords random vector
+#' @export
 
-StocSum.LDSC.glmmkin2randomvec <- function(obj, Z = NULL, N.randomvec = 1000, group.idx = NULL, cluster.idx = NULL, robust = FALSE) {
+LDSC.glmmkin2randomvec <- function(obj, Z = NULL, N.randomvec = 1000, group.idx = NULL, cluster.idx = NULL, robust = FALSE) {
     if(class(obj) != "glmmkin") stop("Error: \"obj\" must be a class glmmkin object.")
     N <- length(obj$id_include)
     random.vectors <- matrix(rnorm(N*N.randomvec),nrow=N,ncol=N.randomvec)
@@ -51,166 +75,56 @@ StocSum.LDSC.glmmkin2randomvec <- function(obj, Z = NULL, N.randomvec = 1000, gr
     return(out)
 }
 
-StocSum.LDSC.stat <- function(null.obj, geno.file, meta.file.prefix, MAF.range = c(1e-3, 0.5), miss.cutoff = 1, missing.method = "impute2mean", nperbatch = 10000, ncores = 1)
-{
-  if(Sys.info()["sysname"] == "Windows" && ncores > 1) {
-    warning("The package doMC is not available on Windows... Switching to single thread...")
-    ncores <- 1
-  }
-  missing.method <- try(match.arg(missing.method, c("impute2mean", "impute2zero")))
-  if(class(missing.method) == "try-error") stop("Error: \"missing.method\" must be \"impute2mean\" or \"impute2zero\".")
-  if(class(null.obj) != "glmmkin.randomvec") stop("Error: \"null.obj\" must be a class glmmkin.randomvec object.")
-  if(any(duplicated(null.obj$id_include))) {
-    J <- sapply(unique(null.obj$id_include), function(x) 1*(null.obj$id_include==x))
-    residuals <- crossprod(J, null.obj$scaled.residuals)
-    residuals2 <- crossprod(J, null.obj$random.vectors)
-    rm(J)
-  } else {
-    residuals <- null.obj$scaled.residuals
-    residuals2 <- null.obj$random.vectors
-  }
-  if(!grepl("\\.gds$", geno.file)) stop("Error: currently only .gds format is supported in geno.file!")
-  gds <- SeqArray::seqOpen(geno.file)
-  sample.id <- SeqArray::seqGetData(gds, "sample.id")
-  if(any(is.na(match(null.obj$id_include, sample.id)))) warning("Check your data... Some individuals in null.obj$id_include are missing in sample.id of geno.file!")
-  sample.id <- sample.id[sample.id %in% null.obj$id_include]
-  if(length(sample.id) == 0) stop("Error: null.obj$id_include does not match sample.id in geno.file!")
-  match.id <- match(sample.id, unique(null.obj$id_include))
-  residuals <- residuals[match.id]
-  residuals2 <- residuals2[match.id, , drop = FALSE]
-  variant.idx.all <- SeqArray::seqGetData(gds, "variant.id")
-  SeqArray::seqClose(gds)
-  p.all <- length(variant.idx.all)
-  ncores <- min(c(ncores, parallel::detectCores(logical = TRUE)))
-  if(ncores > 1) {
-    doMC::registerDoMC(cores = ncores)
-    p.percore <- (p.all-1) %/% ncores + 1
-    n.p.percore_1 <- p.percore * ncores - p.all
-    foreach(b=1:ncores, .inorder=FALSE, .options.multicore = list(preschedule = FALSE, set.seed = FALSE)) %dopar% {
-      variant.idx <- if(b <= n.p.percore_1) variant.idx.all[((b-1)*(p.percore-1)+1):(b*(p.percore-1))] else variant.idx.all[(n.p.percore_1*(p.percore-1)+(b-n.p.percore_1-1)*p.percore+1):(n.p.percore_1*(p.percore-1)+(b-n.p.percore_1)*p.percore)]
-      p <- length(variant.idx)
-      if(.Platform$endian!="little") stop("Error: platform must be little endian.")
-      meta.file.sample <- paste0(meta.file.prefix, ".sample.", b)
-      meta.file.resample <- paste0(meta.file.prefix, ".resample.", b)
-      write.table(t(c("SNP", "chr", "pos", "ref", "alt", "N", "missrate", "altfreq", "SCORE")), meta.file.sample, quote = FALSE, row.names = FALSE, col.names = FALSE)
-      meta.file.resample.handle <- file(meta.file.resample, "wb")
-      writeBin(as.integer(ncol(residuals2)), meta.file.resample.handle, size = 4)
-      gds <- SeqArray::seqOpen(geno.file)
-      SeqArray::seqSetFilter(gds, sample.id = sample.id)
-      nbatch.flush <- (p-1) %/% nperbatch + 1
-      for(i in 1:nbatch.flush) {
-        gc()
-        tmp.variant.idx <- if(i == nbatch.flush) variant.idx[((i-1)*nperbatch+1):p] else variant.idx[((i-1)*nperbatch+1):(i*nperbatch)]
-        SeqArray::seqSetFilter(gds, variant.id  = tmp.variant.idx, verbose = FALSE)
-        miss <- SeqVarTools::missingGenotypeRate(gds, margin = "by.variant")
-        freq <- 1 - SeqVarTools::alleleFrequency(gds)
-        include <- (miss <= miss.cutoff & ((freq >= MAF.range[1] & freq <= MAF.range[2]) | (freq >= 1-MAF.range[2] & freq <= 1-MAF.range[1])))
-        if(sum(include) == 0) next
-        tmp.variant.idx <- tmp.variant.idx[include]
-        tmp.p <- length(tmp.variant.idx)
-        SeqArray::seqSetFilter(gds, variant.id = tmp.variant.idx)
-        SNP <- SeqArray::seqGetData(gds, "annotation/id")
-        SNP[SNP == ""] <- NA
-        out <- data.frame(SNP = SNP, chr = SeqArray::seqGetData(gds, "chromosome"), pos = SeqArray::seqGetData(gds, "position"))
-        rm(SNP)
-        alleles.list <- strsplit(SeqArray::seqGetData(gds, "allele"), ",")
-        out$ref <- unlist(lapply(alleles.list, function(x) x[1]))
-        out$alt <- unlist(lapply(alleles.list, function(x) paste(x[-1], collapse=",")))
-        out$missrate <- miss[include]
-        out$altfreq <- freq[include]
-        rm(alleles.list, include)
-        SeqArray::seqSetFilter(gds, variant.id  = tmp.variant.idx, verbose = FALSE)
-        geno <- SeqVarTools::altDosage(gds, use.names = FALSE)
-        out$N <- nrow(geno) - colSums(is.na(geno))
-        if(max(out$missrate)>0) {
-          miss.idx <- which(is.na(geno))
-          geno[miss.idx] <- if(missing.method=="impute2mean") 2*out$altfreq[ceiling(miss.idx/nrow(geno))] else 0
-        }
-        #adding by NW----start
-        # sdgeno<-apply(geno,2,sd)
-        # geno<-sweep(geno,2,sdgeno,'/')
-        # for(i in seq(1, ncol(geno),1)){
-        #   geno[,i] <- geno[,i]/sd(geno[,i])
-        #   # geno[,i] <- (geno[,i]-mean(geno[,i]))
-        #   # geno[,i] <- geno[,i]/sd(geno[,i])
-        # }
-        #adding by NW----end
-        out$SCORE <- as.vector(crossprod(geno, residuals))
-        write.table(out[,c("SNP", "chr", "pos", "ref", "alt", "N", "missrate", "altfreq", "SCORE")], meta.file.sample, quote=FALSE, row.names=FALSE, col.names=FALSE, append=TRUE, na=".")
-        writeBin(as.numeric(crossprod(residuals2, geno)), meta.file.resample.handle, size = 4)
-        rm(out)
-      }
-      SeqArray::seqClose(gds)
-      close(meta.file.resample.handle)
-    }
-  } else { # use a single core
-    variant.idx <- variant.idx.all
-    rm(variant.idx.all)
-    p <- length(variant.idx)
-    if(.Platform$endian!="little") stop("Error: platform must be little endian.")
-    meta.file.sample <- paste0(meta.file.prefix, ".sample.1")
-    meta.file.resample <- paste0(meta.file.prefix, ".resample.1")
-    write.table(t(c("SNP", "chr", "pos", "ref", "alt", "N", "missrate", "altfreq", "SCORE")), meta.file.sample, quote = FALSE, row.names = FALSE, col.names = FALSE)
-    meta.file.resample.handle <- file(meta.file.resample, "wb")
-    writeBin(as.integer(ncol(residuals2)), meta.file.resample.handle, size = 4)
-    gds <- SeqArray::seqOpen(geno.file)
-    SeqArray::seqSetFilter(gds, sample.id = sample.id)
-    nbatch.flush <- (p-1) %/% nperbatch + 1
-    for(i in 1:nbatch.flush) {
-      gc()
-      tmp.variant.idx <- if(i == nbatch.flush) variant.idx[((i-1)*nperbatch+1):p] else variant.idx[((i-1)*nperbatch+1):(i*nperbatch)]
-      SeqArray::seqSetFilter(gds, variant.id = tmp.variant.idx, verbose = FALSE)
-      miss <- SeqVarTools::missingGenotypeRate(gds, margin = "by.variant")
-      freq <- 1 - SeqVarTools::alleleFrequency(gds)
-      include <- (miss <= miss.cutoff & ((freq >= MAF.range[1] & freq <= MAF.range[2]) | (freq >= 1-MAF.range[2] & freq <= 1-MAF.range[1])))
-      if(sum(include) == 0) next
-      tmp.variant.idx <- tmp.variant.idx[include]
-      tmp.p <- length(tmp.variant.idx)
-      SeqArray::seqSetFilter(gds, variant.id = tmp.variant.idx)
-      SNP <- SeqArray::seqGetData(gds, "annotation/id")
-      SNP[SNP == ""] <- NA
-      out <- data.frame(SNP = SNP, chr = SeqArray::seqGetData(gds, "chromosome"), pos = SeqArray::seqGetData(gds, "position"))
-      rm(SNP)
-      alleles.list <- strsplit(SeqArray::seqGetData(gds, "allele"), ",")
-      out$ref <- unlist(lapply(alleles.list, function(x) x[1]))
-      out$alt <- unlist(lapply(alleles.list, function(x) paste(x[-1], collapse=",")))
-      out$missrate <- miss[include]
-      out$altfreq <- freq[include]
-      rm(alleles.list, include)
-      SeqArray::seqSetFilter(gds, variant.id = tmp.variant.idx, verbose = FALSE)
-      geno <- SeqVarTools::altDosage(gds, use.names = FALSE)
-      out$N <- nrow(geno) - colSums(is.na(geno))
-      if(max(out$missrate)>0) {
-        miss.idx <- which(is.na(geno))
-        geno[miss.idx] <- if(missing.method=="impute2mean") 2*out$altfreq[ceiling(miss.idx/nrow(geno))] else 0
-      }
-      #adding by NW----start
-      # sdgeno<-apply(geno,2,sd)
-      # geno<-sweep(geno,2,sdgeno,'/')
-      # for(i in seq(1, ncol(geno),1)){
-      #   geno[,i] <- geno[,i]/sd(geno[,i])
-      #   # geno[,i] <- (geno[,i]-mean(geno[,i]))
-      #   # geno[,i] <- geno[,i]/sd(geno[,i])
-      # }
-      #adding by NW----end
-      out$SCORE <- as.vector(crossprod(geno, residuals))
-      write.table(out[,c("SNP", "chr", "pos", "ref", "alt", "N", "missrate", "altfreq", "SCORE")], meta.file.sample, quote=FALSE, row.names=FALSE, col.names=FALSE, append=TRUE, na=".")
-      writeBin(as.numeric(crossprod(residuals2, geno)), meta.file.resample.handle, size = 4)
-      rm(out)
-    }
-    SeqArray::seqClose(gds)
-    close(meta.file.resample.handle)
-  } 
-  # tp<-list()
-  # tp$geno<-geno
-  # tp$R<-residuals2
-  # tp$U<-crossprod(residuals2, geno)
-  # tp$matchid<-match.id
-  # return(tp)
-  return(invisible(NULL))
-}
 
-StocSum.LDSC.ldscWinFastParrel <- function(meta.files.prefix, n.files = rep(1, length(meta.files.prefix)), N.randomvec=1000, MAF.range = c(1e-3, 0.5), MAF.weights.beta = c(0.5, 0.5), miss.cutoff = 1, wind.b=1000000, use.minor.allele = FALSE, auto.flip = FALSE, nperbatch = 100000, ncores = 1)
+####LDSC.stat is same as G.stat
+
+
+#' Calculate LDscore
+#' @description Use summary statistics and stochastic statistics from G.stat to estimate LDscore.
+#' @param meta.file.prefix a character vector for prefix of intermediate files (*.sample.* and *.resample.*). 
+#' @param n.files an integer vector with the same length as meta.files.prefix, indicating how many sets of intermediate files (.score.* and .var.*) are expected from each cohort, usually as the result of multi-threading in creating the intermediate files (default = rep(1, length(meta.files.prefix))).
+#' @param N.randomvec the number of replicates to simulate the random vectors in \code{StocSum.LDSC.glmmkin2randomvec} (default = 1000).
+#' @param MAF.range a numeric vector of length 2 defining the minimum and maximum minor allele frequencies of variants that should be included in the analysis (default = c(1e-7, 0.5)).
+#' @param MAF.weight.beta MAF.weight.beta = c(0.5, 0.5). %% a numeric vector of length 2 defining the beta probability density function parameters on the minor allele frequencies. This internal minor allele frequency weight is multiplied by the external weight given by the group.file. To turn off internal minor allele frequency weight and only use the external weight given by the group.file, use c(1, 1) to assign flat weights (default = c(1, 25)). Applied to the combined samples.
+#' @param missing.cutoff the maximum missing rate allowed for a variant to be included (default = 1, including all variants).
+#' @param wind.b a positive integer define the window size in bases (default = 1000000).
+#' @param use.minor.allele a logical switch for whether to use the minor allele (instead of the alt allele) as the coding allele (default = FALSE). It does not change SKAT results, but Burden (as well as SKAT-O and hybrid test to combine the burden test and SKAT) will be affected. Along with the MAF filter, this option is useful for combining rare mutations, assuming rare allele effects are in the same direction. Use with caution, as major/minor alleles may flip in different cohorts. In that case, minor allele will be determined based on the allele frequency in the combined samples.
+#' @param auto.flip a logical switch for whether to enable automatic allele flipping if a variant with alleles ref/alt is not found at a position, but a variant at the same position with alleles alt/ref is found (default = FALSE). Use with caution for whole genome sequence data, as both ref/alt and alt/ref variants at the same position are not uncommon, and they are likely two different variants, rather than allele flipping.
+#' @param nperbatch an integer for how many SNPs to be included in a batch (default = 10000). The computational time can increase dramatically if this value is either small or large. The optimal value for best performance depends on the user’s system.
+#' @param ncores a positive integer indicating the number of cores to be used in parallel computing (default = 1).
+#' @return \code{LDSC.win} returns a data frame with the following components:
+#' \item{SNP}{SNP name.}
+#' \item{chr}{chromosome name.}
+#' \item{pos}{the genome location of SNP.}
+#' \item{ref}{allele of reference.}
+#' \item{alt}{alternative allele.}
+#' \item{N}{total sample size.}
+#' \item{altfreq}{alternative allele frequency.}
+#' \item{idx}{indicating SNPs.}
+#' \item{pos.end}{To which SNP (position) is included to esitmate LD score for the current SNP.}
+#' \item{pos.start}{From which SNP (position) is included to estimate LD score for the current SNP.}
+#' \item{LDscore}{LD score for each SNP.}
+#' @reference 
+#' @author Han Chen, Nannan Wang
+#' @seealso \code{LDSC.glmmkin2randomvec}, \code{G.stat}
+#' @examples
+#' \donttest{
+#' library(GMMAT)
+#' data(example)
+#' attach(example)
+#' GRM.file <- system.file("extdata", "GRM.txt.bz2", package = "GMMAT")
+#' GRM <- as.matrix(read.table(GRM.file, check.names = FALSE))
+#' nullmod <- glmmkin(disease ~ age + sex, data = pheno, kins = GRM, id = "id", family = binomial(link = "logit"))
+#' obj <- glmmkin2randomvec(nullmod)
+#' out.prefix <- "test"
+#' gdsfile <- system.file("extdata", "geno.gds", package = "GMMAT")
+#' G.stat(obj, geno.file = gdsfile, meta.file.prefix = out.prefix, MAF.range=c(0,0.5), miss.cutoff = 1)
+#' xxxxxxxxxxxxxxxxxxxxxxxxxxx
+#' }
+#' @keywords LD Score
+#' @export
+
+LDSC.win <- function(meta.files.prefix, n.files = rep(1, length(meta.files.prefix)), N.randomvec=1000, MAF.range = c(1e-3, 0.5), MAF.weights.beta = c(0.5, 0.5), miss.cutoff = 1, wind.b=1000000, use.minor.allele = FALSE, auto.flip = FALSE, nperbatch = 100000, ncores = 1)
 {
   cohort.group.idx <- NULL
   if(.Platform$endian!="little") stop("Error: platform must be little endian.")
