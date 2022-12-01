@@ -32,7 +32,8 @@
 #' @keywords random vector
 #' @export
 
-glmmkin2randomvec <- function(obj, Z = NULL, N.randomvec = 1000, group.idx=NULL, cluster.idx=NULL, robust = FALSE) {
+glmmkin2randomvec <- function(obj, Z = NULL, N.randomvec = 1000, group.idx=NULL, cluster.idx=NULL, robust = FALSE) 
+{
     if(class(obj) != "glmmkin") stop("Error: \"obj\" must be a class glmmkin object.")
     N <- length(obj$id_include)
     random.vectors <- matrix(rnorm(N*N.randomvec),nrow = N,ncol = N.randomvec)
@@ -693,7 +694,7 @@ svt.pval <- function(meta.files.prefix, n.files = rep(1, length(meta.files.prefi
 #' @keywords variant set-based test
 #' @export
 
-G.pval <- function(meta.files.prefix, n.files = rep(1, length(meta.files.prefix)), cohort.group.idx = NULL, group.file, group.file.sep = "\t", MAF.range = c(1e-7, 0.5), MAF.weights.beta = c(1, 25), miss.cutoff = 1, method = "davies", tests = "E", rho = c(0, 0.1^2, 0.2^2, 0.3^2, 0.4^2, 0.5^2, 0.5, 1), use.minor.allele = FALSE, auto.flip = FALSE)
+G.prep <- function(meta.files.prefix, n.files = rep(1, length(meta.files.prefix)), cohort.group.idx = NULL, group.file, group.file.sep = "\t", auto.flip = FALSE)
 {
     if(.Platform$endian!="little") stop("Error: platform must be little endian.")
     n.cohort <- length(meta.files.prefix)
@@ -703,12 +704,8 @@ G.pval <- function(meta.files.prefix, n.files = rep(1, length(meta.files.prefix)
         cohort.group.idx <- as.numeric(factor(cohort.group.idx))
         n.cohort.groups <- length(unique(cohort.group.idx))
     }
-    if(any(!tests %in% c("B", "S", "O", "E"))) stop("Error: \"tests\" should only include \"B\" for the burden test, \"S\" for SKAT, \"O\" for SKAT-O or \"E\" for the efficient hybrid test of the burden test and SKAT.")
-    Burden <- "B" %in% tests
-    SKAT <- "S" %in% tests
-    SKATO <- "O" %in% tests
-    SMMAT <- "E" %in% tests
-    group.info <- try(read.table(group.file, header = FALSE, stringsAsFactors = FALSE, sep = group.file.sep), silent = TRUE)
+    # group.info <- try(read.table(group.file, header = FALSE, stringsAsFactors = FALSE, sep = group.file.sep), silent = TRUE)
+    group.info<- try(fread(group.file,header=FALSE,stringsAsFactors = FALSE, sep=group.file.sep, data.table = FALSE), silent = TRUE)
     if (class(group.info) == "try-error") {
         stop("Error: cannot read group.file!")
     }
@@ -732,7 +729,8 @@ G.pval <- function(meta.files.prefix, n.files = rep(1, length(meta.files.prefix)
     for(i in 1:n.cohort) {
         tmp.scores <- NULL
         for(j in 1:n.files[i]) {
-            tmp <- try(read.table(paste0(meta.files.prefix[i], ".sample.", j), header = TRUE, as.is = TRUE))
+            # tmp <- try(read.table(paste0(meta.files.prefix[i], ".sample.", j), header = TRUE, as.is = TRUE))
+            tmp <- try(fread(paste0(meta.files.prefix[i], ".sample.", j), header=TRUE, data.table = FALSE))
             if (class(tmp) == "try-error") {
                 stop(paste0("Error: cannot read ", meta.files.prefix[i], ".sample.", j, "!"))
             }
@@ -764,12 +762,52 @@ G.pval <- function(meta.files.prefix, n.files = rep(1, length(meta.files.prefix)
                 tmp$flip <- 1
                 tmp <- tmp[variant.idx1, ]
             }
+            if (nrow(tmp)==0) next
             tmp$file <- j
             tmp.scores <- rbind(tmp.scores, tmp)
             rm(tmp)
         }
         scores[[i]] <- cbind(group.info, tmp.scores[match(variant.id1, paste(tmp.scores$chr, tmp.scores$pos, tmp.scores$ref, tmp.scores$alt, sep = ":")), c("N", "missrate", "altfreq", "SCORE", "file", "variant.idx", "flip")])
         rm(tmp.scores)
+    }
+    if(!is.null(cohort.group.idx)) {
+        out <- list(meta.files.prefix = meta.files.prefix, n.cohort = n.cohort, cohort.group.idx = cohort.group.idx, n.cohort.groups = n.cohort.groups, n.groups = n.groups, groups = groups, group.idx.start = group.idx.start, group.idx.end = group.idx.end, scores = scores, auto.filp = auto.flip)
+    } else{
+        out <- list(meta.files.prefix = meta.files.prefix, n.cohort = n.cohort, cohort.group.idx = cohort.group.idx, n.groups = n.groups, groups = groups, group.idx.start = group.idx.start, group.idx.end = group.idx.end, scores = scores, auto.filp = auto.flip)
+    }
+    class(out) <- "G.prep"
+    return(out)
+}
+
+G.pval <- function(G.prep.obj, MAF.range = c(1e-7, 0.5), MAF.weights.beta = c(1, 25), miss.cutoff = 1, method = "davies", tests = "E", rho = c(0, 0.1^2, 0.2^2, 0.3^2, 0.4^2, 0.5^2, 0.5, 1), use.minor.allele = FALSE)
+{
+    if(class(G.prep.obj) != "G.prep") stop("Error: G.prep.obj must be a class G.prep object!")
+    if(.Platform$endian!="little") stop("Error: platform must be little endian.")
+    meta.files.prefix <- G.prep.obj$meta.files.prefix
+    n.groups <- G.prep.obj$n.groups
+    n.cohort <- G.prep.obj$n.cohort
+    cohort.group.idx <- G.prep.obj$cohort.group.idx 
+    if(!is.null(cohort.group.idx)) n.cohort.groups <- G.prep.obj$n.cohort.groups
+    n.cohort.groups <- G.prep.obj$n.cohort.groups
+    groups <- G.prep.obj$groups
+    group.idx.start <- G.prep.obj$group.idx.start
+    group.idx.end <- G.prep.obj$group.idx.end
+    scores <- G.prep.obj$scores
+    # N.resampling <- G.prep.obj$N.resampling
+    # cons <- G.prep.obj$cons
+    auto.flip <- G.prep.obj$auto.flip
+    if(any(!tests %in% c("B", "S", "O", "E"))) stop("Error: \"tests\" should only include \"B\" for the burden test, \"S\" for SKAT, \"O\" for SKAT-O or \"E\" for the efficient hybrid test of the burden test and SKAT.")
+    Burden <- "B" %in% tests
+    SKAT <- "S" %in% tests
+    SKATO <- "O" %in% tests
+    SMMAT <- "E" %in% tests
+    cons <- vector("list", n.cohort)
+    N.resampling <- rep(0, n.cohort)
+    # if(auto.flip) {
+    #     cat("Automatic allele flipping enabled...\nVariants matching alt/ref but not ref/alt alleles will also be included, with flipped effects\n")
+    #     variant.id2 <- paste(group.info$chr, group.info$pos, group.info$alt, group.info$ref, sep = ":")
+    # }
+    for(i in 1:n.cohort) {
         cons[[i]] <- file(paste0(meta.files.prefix[i], ".resample.1"), "rb")
         N.resampling[i] <- readBin(cons[[i]], what = "integer", n = 1, size = 4)
     }
@@ -910,6 +948,253 @@ G.pval <- function(meta.files.prefix, n.files = rep(1, length(meta.files.prefix)
     }
     if(SMMAT) out$E.pval <- SMMAT.pval
     return(out)
+}
+
+Cond.svt.pval <- function(meta.files.prefix, n.files = rep(1, length(meta.files.prefix)), tagChr, StartPos, EndPos, tagPos, MAF.range = c(1e-7, 0.5), miss.cutoff = 1, auto.flip = FALSE, nperbatch = 10000, tol=1e-5)
+{
+    if(.Platform$endian!="little") stop("Error: platform must be little endian.")
+    n.cohort <- length(meta.files.prefix)
+    if(length(n.files) != n.cohort) stop("Error: numbers of cohorts specified in meta.files.prefix and n.files do not match.")
+    group.info <- NULL
+    for(i in 1:n.cohort) {
+        for(j in 1:n.files[i]) {
+            # tmp <- try(read.table(paste0(meta.files.prefix[i], ".sample.", j), header = TRUE, as.is = TRUE))
+            tmp <- try(fread(paste0(meta.files.prefix[i], ".sample.", j), header = TRUE, data.table = FALSE))
+            if (class(tmp) == "try-error") {
+                stop(paste0("Error: cannot read ", meta.files.prefix[i], ".sample.", j, "!"))
+            }
+            tmp <- tmp[,c("SNP", "chr", "pos", "ref", "alt")]
+            tmp$snpid <- paste(tmp$chr, tmp$pos, tmp$ref, tmp$alt, sep = ":")
+            tmp <- tmp[!duplicated(tmp$snpid), , drop = FALSE]
+            if(auto.flip) {
+                snpid2 <- paste(tmp$chr, tmp$pos, tmp$alt, tmp$ref, sep = ":")
+                match.snpid <- match(snpid2, tmp$snpid)
+                tmp <- tmp[is.na(match.snpid) | match.snpid > 1:length(match.snpid), , drop = FALSE]
+                snpid2 <- snpid2[is.na(match.snpid) | match.snpid > 1:length(match.snpid)]
+                rm(match.snpid)
+            }
+            if(!is.null(group.info)) {
+                if(auto.flip) {
+                    tmp <- subset(tmp, !snpid %in% group.info$snpid & !snpid2 %in% group.info$snpid)
+                    rm(snpid2)
+                } else tmp <- subset(tmp, !snpid %in% group.info$snpid)
+            } else if(auto.flip) {
+                rm(snpid2)
+            }
+            if(nrow(tmp) > 0) group.info <- rbind(group.info, tmp)
+            rm(tmp)
+        }
+    }
+    group.info <- group.info[order(group.info$chr, group.info$pos), ]
+    group.info <- group.info[(group.info$chr == tagChr) & (group.info$pos > StartPos) & (group.info$pos < EndPos),]
+    p <- nrow(group.info)
+    group.info$idx <- 1:p
+    variant.id1 <- group.info$snpid
+    scores <- cons <- vector("list", n.cohort)
+    N.resampling <- rep(0, n.cohort)
+    if(auto.flip) {
+        cat("Automatic allele flipping enabled...\nVariants matching alt/ref but not ref/alt alleles will also be included, with flipped effects\n")
+        variant.id2 <- paste(group.info$chr, group.info$pos, group.info$alt, group.info$ref, sep = ":")
+    }
+    for(i in 1:n.cohort) {
+        tmp.scores <- NULL
+        for(j in 1:n.files[i]) {
+            # tmp <- try(read.table(paste0(meta.files.prefix[i], ".sample.", j), header = TRUE, as.is = TRUE))
+            tmp <- try(fread(paste0(meta.files.prefix[i], ".sample.", j), header = TRUE, data.table = FALSE))
+            if (class(tmp) == "try-error") {
+                stop(paste0("Error: cannot read ", meta.files.prefix[i], ".sample.", j, "!"))
+            }
+            tmp <- tmp[,c("chr", "pos", "ref", "alt", "N", "missrate", "altfreq", "SCORE")]
+            tmp$variant.idx <- 1:nrow(tmp)
+            variant.id <- paste(tmp$chr, tmp$pos, tmp$ref, tmp$alt, sep = ":")
+            variant.idx1 <- variant.id %in% variant.id1
+            if(auto.flip) {
+                variant.idx2 <- variant.id %in% variant.id2
+                if(any(variant.idx1 & variant.idx2)) {
+                    tmp.dups <- which(variant.idx1 & variant.idx2)
+                    cat("The following ambiguous variants were found in",paste0(meta.files.prefix[i], ".sample.", j),":\n")
+                    cat("chr:", tmp$chr[tmp.dups], "\n")
+                    cat("pos:", tmp$pos[tmp.dups], "\n")
+                    cat("ref:", tmp$ref[tmp.dups], "\n")
+                    cat("alt:", tmp$alt[tmp.dups], "\n")
+                    cat("Warning: both variants with alleles ref/alt and alt/ref were present at the same position and coding should be double checked!\nFor these variants, only those with alleles ref/alt were used in the analysis...\n")
+                    variant.idx2[tmp.dups] <- FALSE
+                    rm(tmp.dups)
+                }
+                tmpallele <- tmp$ref[variant.idx2]
+                tmp$ref[variant.idx2] <- tmp$alt[variant.idx2]
+                tmp$alt[variant.idx2] <- tmpallele
+                rm(tmpallele)
+                tmp$altfreq[variant.idx2] <- 1-tmp$altfreq[variant.idx2]
+                tmp$flip <- 1-2*(variant.idx2)
+                tmp <- tmp[variant.idx1 | variant.idx2, ]
+            } else {
+                tmp$flip <- 1
+                tmp <- tmp[variant.idx1, ]
+            }
+            if (nrow(tmp)==0) next
+            tmp$file <- j
+            tmp.scores <- rbind(tmp.scores, tmp)
+            rm(tmp)
+        }
+        scores[[i]] <- cbind(group.info, tmp.scores[match(variant.id1, paste(tmp.scores$chr, tmp.scores$pos, tmp.scores$ref, tmp.scores$alt, sep = ":")), c("N", "missrate", "altfreq", "SCORE", "file", "variant.idx", "flip")])
+        rm(tmp.scores)
+        cons[[i]] <- file(paste0(meta.files.prefix[i], ".resample.1"), "rb")
+        N.resampling[i] <- readBin(cons[[i]], what = "integer", n = 1, size = 4)
+    }
+    current.lines <- current.cons <- rep(1, n.cohort)
+
+    tmp.idx <- group.info$idx[group.info$pos %in% tagPos]
+    U.list <- V.list <- vector("list", n.cohort)
+    variant.indices <- tmp.N <- tmp.Nmiss <- tmp.AC <- c()
+    for(j in 1:n.cohort) {
+        tmp.scores <- scores[[j]][tmp.idx, , drop = FALSE]
+        if(any(tmp.include <- !is.na(tmp.scores$SCORE))) {
+            U.list[[j]] <- tmp.scores[tmp.include, , drop = FALSE]
+            U.list[[j]]$SCORE <- U.list[[j]]$SCORE * U.list[[j]]$flip
+            tmp.V <- matrix(NA, sum(tmp.include), N.resampling[j])
+            for(ij in 1:sum(tmp.include)) {
+                if(U.list[[j]]$file[ij]!=current.cons[j]) {
+                    close(cons[[j]])
+                    current.cons[j] <- U.list[[j]]$file[ij]
+                    cons[[j]] <- file(paste0(meta.files.prefix[j], ".resample.", current.cons[j]), "rb")
+                    tmp.N.resampling <- readBin(cons[[j]], what = "integer", n = 1, size = 4)
+                    if(tmp.N.resampling != N.resampling[j]) stop(paste0("Error: N.resampling in ", meta.files.prefix[j], ".resample.", current.cons[j], " does not match that in ",meta.files.prefix[j], ".resample.1"))
+                    current.lines[j] <- 1
+                }
+                if(U.list[[j]]$variant.idx[ij]!=current.lines[j]) seek(cons[[j]], where = 4*N.resampling[j]*(U.list[[j]]$variant.idx[ij]-current.lines[j]), origin = "current", rw = "read")
+                tmp.V[ij,] <- readBin(cons[[j]], what = "numeric", n = N.resampling[j], size = 4)
+                current.lines[j] <- U.list[[j]]$variant.idx[ij]+1
+            }
+            V.list[[j]] <- tmp.V * U.list[[j]]$flip / sqrt(N.resampling[j])
+            rm(tmp.V)
+            variant.indices <- c(variant.indices, U.list[[j]]$idx)
+            tmp.N <- c(tmp.N, U.list[[j]]$N)
+            tmp.Nmiss <- c(tmp.Nmiss, U.list[[j]]$N * U.list[[j]]$missrate/(1-U.list[[j]]$missrate))
+            tmp.AC <- c(tmp.AC, 2*U.list[[j]]$N*U.list[[j]]$altfreq)
+        }
+    }
+    if(length(variant.indices) == 0) next
+    tmp.variant.indices <- variant.indices
+    variant.indices <- sort(unique(variant.indices))
+    N <- sapply(variant.indices, function(x) sum(tmp.N[tmp.variant.indices==x]))
+    Nmiss <- sapply(variant.indices, function(x) sum(tmp.Nmiss[tmp.variant.indices==x]))
+    AF <- sapply(variant.indices, function(x) sum(tmp.AC[tmp.variant.indices==x]))/2/N
+    include <- (Nmiss/(N+Nmiss) <= miss.cutoff & ((AF >= MAF.range[1] & AF <= MAF.range[2]) | (AF >= 1-MAF.range[2] & AF <= 1-MAF.range[1])))
+    rm(tmp.N, tmp.Nmiss, tmp.AC, tmp.variant.indices)
+    if(sum(include) == 0) next
+    variant.indices <- variant.indices[include]
+    n.p <- length(variant.indices)
+    Ub1 <- rep(0, n.p)
+    Vb1 <- matrix(0, n.p, sum(N.resampling))
+    for(j in 1:n.cohort) {
+        if(!is.null(U.list[[j]]) & !is.null(V.list[[j]])) {
+            IDX <- match(U.list[[j]]$idx, variant.indices)
+            if(sum(!is.na(IDX)) == 0) next
+            IDX2 <- which(!is.na(IDX))
+            IDX <- IDX[IDX2]
+            Ub1[IDX] <- Ub1[IDX]+U.list[[j]]$SCORE[IDX2]
+            Vb1[IDX, (sum(N.resampling[1:j])-N.resampling[j]+1):sum(N.resampling[1:j])] <- Vb1[IDX,(sum(N.resampling[1:j])-N.resampling[j]+1):sum(N.resampling[1:j])]+V.list[[j]][IDX2,]
+        }
+    }
+    for(i in 1:n.cohort) close(cons[[i]])
+
+    current.lines <- current.cons <- rep(1, n.cohort)
+    nbatch.flush <- (p-1) %/% nperbatch + 1
+    all.out <- NULL
+    for (j in 1:n.cohort) {
+        cons[[j]] <- file(paste0(meta.files.prefix[j], ".resample.1"), "rb")
+        N.resampling[j] <- readBin(cons[[j]], what = "integer", n = 1, size = 4)
+    }
+    for(i in 1:nbatch.flush) {
+        # print(i)
+        tmp.idx <- if(i == nbatch.flush) group.info$idx[((i-1)*nperbatch+1):p] else group.info$idx[((i-1)*nperbatch+1):(i*nperbatch)]
+        #tmp.group.info <- group.info[tmp.idx, , drop = FALSE]
+        U.list <- V.list <- vector("list", n.cohort)
+        variant.indices <- tmp.N <- tmp.Nmiss <- tmp.AC <- c()
+        for(j in 1:n.cohort) {
+            # cons[[j]] <- file(paste0(meta.files.prefix[j], ".resample.1"), "rb")
+            tmp.scores <- scores[[j]][tmp.idx, , drop = FALSE]
+            if(any(tmp.include <- !is.na(tmp.scores$SCORE))) {
+                U.list[[j]] <- tmp.scores[tmp.include, , drop = FALSE]
+                U.list[[j]]$SCORE <- U.list[[j]]$SCORE * U.list[[j]]$flip
+                tmp.V <- matrix(NA, sum(tmp.include), N.resampling[j])
+                for(ij in 1:sum(tmp.include)) {
+                    if(U.list[[j]]$file[ij]!=current.cons[j]) {
+                        close(cons[[j]])
+                        current.cons[j] <- U.list[[j]]$file[ij]
+                        cons[[j]] <- file(paste0(meta.files.prefix[j], ".resample.", current.cons[j]), "rb")
+                        tmp.N.resampling <- readBin(cons[[j]], what = "integer", n = 1, size = 4)
+                        if(tmp.N.resampling != N.resampling[j]) stop(paste0("Error: N.resampling in ", meta.files.prefix[j], ".resample.", current.cons[j], " does not match that in ",meta.files.prefix[j], ".resample.1"))
+                        current.lines[j] <- 1
+                    }
+                    # a <-seek(cons[[j]], where = 0, origin = "current", rw = "read")    # 
+                    # print(a) #
+                    if(U.list[[j]]$variant.idx[ij]!=current.lines[j]) seek(cons[[j]], where = 4*N.resampling[j]*(U.list[[j]]$variant.idx[ij]-current.lines[j]), origin = "current", rw = "read")  
+                    tmp.V[ij,] <- readBin(cons[[j]], what = "numeric", n = N.resampling[j], size = 4)
+                    # a <-seek(cons[[j]], where = 0, origin = "current", rw = "read")    # 
+                    # print(a) # 
+                    # print(U.list[[j]]$variant.idx[ij])
+                    # pause(2)
+                    current.lines[j] <- U.list[[j]]$variant.idx[ij]+1
+                }
+                V.list[[j]] <- tmp.V * U.list[[j]]$flip / sqrt(N.resampling[j])
+                rm(tmp.V)
+                variant.indices <- c(variant.indices, U.list[[j]]$idx)
+                tmp.N <- c(tmp.N, U.list[[j]]$N)
+                tmp.Nmiss <- c(tmp.Nmiss, U.list[[j]]$N * U.list[[j]]$missrate/(1-U.list[[j]]$missrate))
+                tmp.AC <- c(tmp.AC, 2*U.list[[j]]$N*U.list[[j]]$altfreq)
+            }
+        }
+        if(length(variant.indices) == 0) next
+        tmp.variant.indices <- variant.indices
+        variant.indices <- sort(unique(variant.indices))
+        N <- sapply(variant.indices, function(x) sum(tmp.N[tmp.variant.indices==x]))
+        Nmiss <- sapply(variant.indices, function(x) sum(tmp.Nmiss[tmp.variant.indices==x]))
+        AF <- sapply(variant.indices, function(x) sum(tmp.AC[tmp.variant.indices==x]))/2/N
+        include <- (Nmiss/(N+Nmiss) <= miss.cutoff & ((AF >= MAF.range[1] & AF <= MAF.range[2]) | (AF >= 1-MAF.range[2] & AF <= 1-MAF.range[1])))
+        rm(tmp.N, tmp.Nmiss, tmp.AC, tmp.variant.indices)
+        if(sum(include) == 0) next
+        variant.indices <- variant.indices[include]
+        out <- data.frame(SNP = group.info$SNP[variant.indices], chr = group.info$chr[variant.indices], pos = group.info$pos[variant.indices], ref = group.info$ref[variant.indices], alt = group.info$alt[variant.indices], N = N[include], missrate = (Nmiss/(N+Nmiss))[include], altfreq = AF[include])
+        n.p <- length(variant.indices)
+        U <- rep(0, n.p)
+        V <- matrix(0, n.p, sum(N.resampling))
+        for(j in 1:n.cohort) {
+            if(!is.null(U.list[[j]]) & !is.null(V.list[[j]])) {
+                IDX <- match(U.list[[j]]$idx, variant.indices)
+                if(sum(!is.na(IDX)) == 0) next
+                IDX2 <- which(!is.na(IDX))
+                IDX <- IDX[IDX2]
+                U[IDX] <- U[IDX]+U.list[[j]]$SCORE[IDX2]
+                V[IDX, (sum(N.resampling[1:j])-N.resampling[j]+1):sum(N.resampling[1:j])] <- V[IDX,(sum(N.resampling[1:j])-N.resampling[j]+1):sum(N.resampling[1:j])]+V.list[[j]][IDX2,]
+            }
+        }
+        Vb1_V<-tcrossprod(Vb1) #*_V variance matrix
+        Vb1_V_i <- try(solve(Vb1_V), silent = TRUE)
+        Tadj<-tcrossprod(tcrossprod(V,Vb1), Vb1_V_i)
+        # Tadj<-(V %*% t(Vb1)) %*% Vb1_V_i
+        U.adj<-U- Tadj %*% Ub1
+        V.adj<- V - Tadj %*% Vb1
+        # out$cor <- cor(V, Vb1)
+        out$SCORE <- U.adj
+        out$VAR <- rowSums(V.adj^2)
+        # out$PVAL <- pchisq(out$SCORE^2/out$VAR, 1, lower = FALSE)
+        out$PVAL <- ifelse(out$VAR>tol, pchisq(out$SCORE^2/out$VAR, 1, lower = FALSE), 1)
+        cor<-rep(0, length(out$PVAL))
+        for(iii in 1:length(out$PVAL)){
+            tmpcor<-c()
+            for (jjj in seq(1,nrow(Vb1))){
+                vb1<-as.numeric(Vb1[jjj,])
+                tmpcor<-c(tmpcor,cor(V[iii,],vb1))
+            }
+            cor[iii]<-max(abs(tmpcor))
+        }
+        out$cor<-cor
+        all.out <- rbind(all.out, out)
+    }
+    for(i in 1:n.cohort) close(cons[[i]])
+    return(all.out)
 }
 
 .skato_Vpval <- function(U, V, rho, method = "davies") {
