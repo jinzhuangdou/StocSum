@@ -6,9 +6,10 @@ Author: Han Chen, Nannan Wang
 Maintainer: Han Chen <Han.Chen.2@uth.tmc.edu>
 Description: StocSum(TBD)
 License: GPL-3
+LazyData: true
 Copyright: See COPYRIGHTS for details.
 Imports: Rcpp, SeqArray, SeqVarTools, CompQuadForm, foreach, GMMAT, parallel,
-        Matrix, methods
+        Matrix, methods, data.table
 Suggests: doMC, testthat
 LinkingTo: Rcpp, RcppArmadillo
 Encoding: UTF-8
