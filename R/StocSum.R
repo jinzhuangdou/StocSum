@@ -1,37 +1,38 @@
 #' Create random vectors for a glmmkin object
 #' @description Generate random vectors from multivariate normal distribution with mean 0 and covariance matrix P.
-#' @param obj The glmmkin object.
+#' @param obj A glmmkin object.
 #' @param Z A list of design matrices for the random effects. The length must match the number of variance components.
 #' @param N.randomvec The number of random vectors to generate (default = 1000).
 #' @param group.idx A length N index vector showing which observation belongs to which variance group, for heteroscedastic linear mixed models (default = NULL for homoscedastic linear mixed models).
 #' @param cluster.idx A length N index vector showing which observation belongs to which cluster (default = NULL for no clusters).
 #' @param robust A logical switch: whether robust variance should be used (default = FALSE).
 #' @return A list of class glmmkin.randomvec
-#' \item{theta}{Variance estimates, inherited from the glmmkin object.}
-#' \item{scaled.residuals}{Scaled residuals, inherited from the glmmkin object.}
-#' \item{random.vectors}{An N by N.randomvec matrix of the random vectors generated.}
-#' \item{X}{model matrix for the fixed effects from the glmmkin object}
-#' \item{id_include}{The ID vector of included samples, inherited from the glmmkin object.}
+#' \item{theta}{inherited from the glmmkin object. A vector or a list of variance component parameter estimates.}
+#' \item{scaled.residuals}{inherited from the glmmkin object. A vector or a matrix for the scaled residuals, calculated as the original residuals divided by the dispersion parameter (in heteroscedastic linear mixed models, corresponding residual variance estimates by each group).}
+#' \item{random.vectors}{A random matrix with dimensions equal to the sample size multiplied by \code{N.randomvec}.}
+#' \item{X}{inherited from the glmmkin object. Model matrix for the fixed effects.}
+#' \item{id_include}{inherited from the glmmkin object. A vector indivating the samples included in model fit.}
 #' @reference 
 #' @author Han Chen, Nannan Wang
 #' @examples
 #' \donttest{
-#' library(GMMAT)
+#' library(StocSum)
 #' data(example)
 #' attach(example)
+#' seed <- 12345
+#' set.seed(seed)
 #' GRM.file <- system.file("extdata", "GRM.txt.bz2", package = "GMMAT")
 #' GRM <- as.matrix(read.table(GRM.file, check.names = FALSE))
 #' nullmod <- glmmkin(disease ~ age + sex, data = pheno, kins = GRM, id = "id", family = binomial(link = "logit"))
-#' if(!is.null(nullmod$P)){
-#'   obj <- glmmkin2randomvec(nullmod)
-#' }else{
-#'   kinship.chol <- chol(GRM)
-#'   obj<-glmmkin2randomvec(nullmod, Z = list(t(kinship.chol)))
-#' }
+# ' if(!is.null(nullmod$P)){
+# '   obj <- glmmkin2randomvec(nullmod)
+# ' }else{
+# '   kinship.chol <- chol(GRM)
+# '   obj<-glmmkin2randomvec(nullmod, Z = list(t(kinship.chol)))
+# ' }
 #' }
 #' @keywords random vector
 #' @export
-
 glmmkin2randomvec <- function(obj, Z = NULL, N.randomvec = 1000, group.idx=NULL, cluster.idx=NULL, robust = FALSE) 
 {
     if(class(obj) != "glmmkin") stop("Error: \"obj\" must be a class glmmkin object.")
@@ -45,7 +46,6 @@ glmmkin2randomvec <- function(obj, Z = NULL, N.randomvec = 1000, group.idx=NULL,
         if(obj$n.groups != 1 && (is.null(group.idx) || !all.equal(seq_len(obj$n.groups), sort(unique(group.idx))))) stop("Error: heteroscedastic linear mixed models should include a valid group.idx argument.")
         if(is.null(group.idx)) group.idx <- rep(1, N)
         if(!robust) random.vectors <- sqrt(obj$theta[group.idx]) * random.vectors
-#       else random.vectors <- random.vectors * abs(obj$residuals)
         else {
             res <- as.numeric(obj$Y - tcrossprod(obj$X, t(obj$coefficient)))
             if(is.null(cluster.idx)) random.vectors <- random.vectors * res
@@ -72,25 +72,27 @@ glmmkin2randomvec <- function(obj, Z = NULL, N.randomvec = 1000, group.idx=NULL,
 }
 
 
-#' Calculate stochastic statistics
+#' Calculate summary statistics and stochastic statistics
 #' @description Calculate summary statistics and stochastic statistics.
-#' @param null.obj a class glmmkin.randomvec object, returned by generating random vectors using \code{glmmkin2randomvec}.
-#' @param geno.file the .gds file name or an object of class SeqVarGDSClass for the full genotypes. The \code{sample.id} in \code{geno.file} should overlap \code{id_include} in \code{null.obj}. It is recommended that \code{sample.id} in \code{geno.file} include the full samples (at least all samples as specified in \code{id_include} of \code{null.obj}). It is not necessary for the user to take a subset of \code{geno.file} before running the analysis. If \code{geno.file} is an object of class SeqVarGDSClass, the .gds file will be closed upon successful completion of the function.
-#' @param meta.file.prefix prefix of intermediate files (*.sample.1 and *.resample.1) required in \code{G.pval}.
-#' @param MAF.range a numeric vector of length 2 defining the minimum and maximum minor allele frequencies of variants that should be included in the analysis (default = c(1e-7, 0.5)).
-#' @param missing.cutoff the maximum missing rate allowed for a variant to be included (default = 1, including all variants).
-#' @param missing.method method of handling missing genotypes. Either "impute2mean" or "impute2zero" (default = "impute2mean").
-#' @param nperbatch an integer for how many SNPs to be included in a batch (default = 10000). The computational time can increase dramatically if this value is either small or large. The optimal value for best performance depends on the user’s system.
-#' @param ncores a positive integer indicating the number of cores to be used in parallel computing (default = 1).
-#' @return NULL. \code{G.stat} will store the summary statistics and the stochastic statistics in two files with the prefix specified by the user.
+#' @param null.obj A class glmmkin.randomvec object, returned by generating random vectors using \code{glmmkin2randomvec}.
+#' @param geno.file The .gds file name or an object of class SeqVarGDSClass for the full genotypes. The \code{sample.id} in \code{geno.file} should overlap \code{id_include} in \code{null.obj}. It is recommended that \code{sample.id} in \code{geno.file} include the full samples (at least all samples as specified in \code{id_include} of \code{null.obj}). It is not necessary for the user to take a subset of \code{geno.file} before running the analysis. If \code{geno.file} is an object of class SeqVarGDSClass, the .gds file will be closed upon successful completion of the function.
+#' @param meta.file.prefix Prefix of intermediate files (*.sample.1 and *.resample.1) required in \code{G.pval}.
+#' @param MAF.range A numeric vector of length 2 defining the minimum and maximum minor allele frequencies of variants that should be included in the analysis (default = c(1e-7, 0.5)).
+#' @param miss.cutoff The maximum missing rate allowed for a variant to be included (default = 1, including all variants).
+#' @param missing.method Method of handling missing genotypes. Either "impute2mean" or "impute2zero" (default = "impute2mean").
+#' @param nperbatch An integer for how many SNPs to be included in a batch (default = 10000). The computational time can increase dramatically if this value is either small or large. The optimal value for best performance depends on the user’s system.
+#' @param ncores A positive integer indicating the number of cores to be used in parallel computing (default = 1).
+#' @return NULL. \code{G.stat} will store the summary statistics and the stochastic statistics in two files with the prefix specified by user.
 #' @reference 
 #' @author Han Chen, Nannan Wang
 #' @seealso \code{glmmkin2randomvec}, \code{G.pval}
 #' @examples
 #' \donttest{
-#' library(GMMAT)
+#' library(StocSum)
 #' data(example)
 #' attach(example)
+#' seed <- 12345
+#' set.seed(seed)
 #' GRM.file <- system.file("extdata", "GRM.txt.bz2", package = "GMMAT")
 #' GRM <- as.matrix(read.table(GRM.file, check.names = FALSE))
 #' nullmod <- glmmkin(disease ~ age + sex, data = pheno, kins = GRM, id = "id", family = binomial(link = "logit"))
@@ -102,11 +104,10 @@ glmmkin2randomvec <- function(obj, Z = NULL, N.randomvec = 1000, group.idx=NULL,
 #' }
 #' out.prefix <- "test"
 #' gdsfile <- system.file("extdata", "geno.gds", package = "GMMAT")
-#' G.stat(obj, geno.file = gdsfile, meta.file.prefix = out.prefix,MAF.range=c(0,0.5), miss.cutoff = 1)
+#' G.stat(obj, geno.file = gdsfile, meta.file.prefix = out.prefix, MAF.range=c(0,0.5), miss.cutoff = 1)
 #' }
 #' @keywords summary statistics
 #' @export
-
 G.stat <- function(null.obj, geno.file, meta.file.prefix, MAF.range = c(1e-7, 0.5), miss.cutoff = 1, missing.method = "impute2mean", nperbatch = 10000, ncores = 1)
 {
     if(Sys.info()["sysname"] == "Windows" && ncores > 1) {
@@ -189,7 +190,7 @@ G.stat <- function(null.obj, geno.file, meta.file.prefix, MAF.range = c(1e-7, 0.
             }
             SeqArray::seqClose(gds)
             close(meta.file.resample.handle)
-    }
+        }
     } else { # use a single core
         variant.idx <- variant.idx.all
         rm(variant.idx.all)
@@ -243,24 +244,26 @@ G.stat <- function(null.obj, geno.file, meta.file.prefix, MAF.range = c(1e-7, 0.
 }
 
 
-#' Performing meta-analysis for GLMM bashed socre test results
+#' Performing meta-analysis for GLMM based socre test results
 #' @description Use summary statistics and stochastic statistics from \code{G.stat} to peform meta-analysis.
-#' @param meta.file.prefix a character vector for prefix of intermediate files (*.sample.* and *.resample.*) which stores summary statistics and stochastic statistics calculated from \code{G.stat}.
-#' @param n.files an integer vector with the same length as meta.files.prefix, indicating how many sets of intermediate files (.score.* and .var.*) are expected from each cohort, usually as the result of multi-threading in creating the intermediate files (default = rep(1, length(meta.files.prefix))).
-#' @param outfile.prefix a character vector for prefix of intermediate files (*.sample.* and *.resample.*) which stores summary statistics and stochatic statistics of meta-analysis.
-#' @param MAF.range a numeric vector of length 2 defining the minimum and maximum minor allele frequencies of variants that should be included in the analysis (default = c(1e-7, 0.5)).
-#' @param missing.cutoff the maximum missing rate allowed for a variant to be included (default = 1, including all variants).
-#' @param auto.flip a logical switch for whether to enable automatic allele flipping if a variant with alleles ref/alt is not found at a position, but a variant at the same position with alleles alt/ref is found (default = FALSE). Use with caution for whole genome sequence data, as both ref/alt and alt/ref variants at the same position are not uncommon, and they are likely two different variants, rather than allele flipping.
-#' @param nperbatch an integer for how many SNPs to be included in a batch (default = 10000). The computational time can increase dramatically if this value is either small or large. The optimal value for best performance depends on the user’s system.
+#' @param meta.file.prefix A character vector for prefix of intermediate files (*.sample.* and *.resample.*) which stores summary statistics and stochastic statistics calculated from \code{G.stat}.
+#' @param n.files An integer vector with the same length as meta.files.prefix, indicating how many sets of intermediate files (.score.* and .var.*) are expected from each cohort, usually as the result of multi-threading in creating the intermediate files (default = rep(1, length(meta.files.prefix))).
+#' @param outfile.prefix A character vector for prefix of intermediate files (*.sample.* and *.resample.*) which stores summary statistics and stochatic statistics of meta-analysis.
+#' @param MAF.range A numeric vector of length 2 defining the minimum and maximum minor allele frequencies of variants that should be included in the analysis (default = c(1e-7, 0.5)).
+#' @param miss.cutoff The maximum missing rate allowed for a variant to be included (default = 1, including all variants).
+#' @param auto.flip A logical switch for whether to enable automatic allele flipping if a variant with alleles ref/alt is not found at a position, but a variant at the same position with alleles alt/ref is found (default = FALSE). Use with caution for whole genome sequence data, as both ref/alt and alt/ref variants at the same position are not uncommon, and they are likely two different variants, rather than allele flipping.
+#' @param nperbatch An integer for how many SNPs to be included in a batch (default = 10000). The computational time can increase dramatically if this value is either small or large. The optimal value for best performance depends on the user’s system.
 #' @return NULL. \code{svt.meta} will store the summary statistics and the stochastic in two files with the prefix specified by the user.
 #' @reference 
 #' @author Han Chen, Nannan Wang
 #' @seealso \code{glmmkin2randomvec}, \code{G.stat}, \code{G.pval}
 #' @examples
 #' \donttest{
-#' library(GMMAT)
+#' library(StocSum)
 #' data(example)
 #' attach(example)
+#' seed <- 12345
+#' set.seed(seed)
 #' GRM.file <- system.file("extdata", "GRM.txt.bz2", package = "GMMAT")
 #' GRM <- as.matrix(read.table(GRM.file, check.names = FALSE))
 #' nullmod <- glmmkin(disease ~ age + sex, data = pheno, kins = GRM, id = "id", family = binomial(link = "logit"))
@@ -272,12 +275,24 @@ G.stat <- function(null.obj, geno.file, meta.file.prefix, MAF.range = c(1e-7, 0.
 #' }
 #' out.prefix <- "test"
 #' gdsfile <- system.file("extdata", "geno.gds", package = "GMMAT")
-#' G.stat(obj, geno.file = gdsfile, meta.file.prefix = out.prefix,MAF.range=c(0,0.5), miss.cutoff = 1)
-#' NOT DONE!!!!!!!!!!!!!!!!
+#' G.stat(obj, geno.file = gdsfile, meta.file.prefix = out.prefix, MAF.range=c(0,0.5), miss.cutoff = 1)
+#' GRM1.file <- system.file("extdata", "GRM1.txt.bz2", package = "GMMAT")
+#' GRM1 <- as.matrix(read.table(GRM1.file, check.names = FALSE))
+#' nullmod1 <- glmmkin(disease ~ age + sex, data = pheno1, kins = GRM1, id = "id", family = binomial(link = "logit"))
+#' if(!is.null(nullmod$P)){
+#'   obj1 <- glmmkin2randomvec(nullmod1)
+#' }else{
+#'   kinship1.chol <- chol(GRM1)
+#'   obj1 <- glmmkin2randomvec(nullmod1, Z = list(t(kinship1.chol)))
+#' }
+#' out.prefix1 <- "test1"
+#' gdsfile1 <- system.file("extdata", "geno1.gds", package = "GMMAT")
+#' G.stat(obj1, geno.file = gdsfile1, meta.file.prefix = out.prefix1, MAF.range=c(0,0.5), miss.cutoff = 1)
+#' outMeta.prefix <- "comp.meta"
+#' svt.meta(c("test", "test1"),n.files = rep(1, 2), outfile.prefix=outMeta.prefix, MAF.range=c(0,0.5), miss.cutoff = 1)
 #' }
 #' @keywords meta-analysis
 #' @export
-
 svt.meta <- function(meta.files.prefix, n.files = rep(1, length(meta.files.prefix)), outfile.prefix, MAF.range = c(1e-7, 0.5), miss.cutoff = 1, auto.flip = FALSE, nperbatch = 10000)
 {
     if(.Platform$endian!="little") stop("Error: platform must be little endian.")
@@ -440,16 +455,14 @@ svt.meta <- function(meta.files.prefix, n.files = rep(1, length(meta.files.prefi
     return(invisible(NULL))
 }
 
-
 #' Performing GLMM based score tests
-#' @description Perform score tests for association with genotypes in a GDS file .gds, with summary statistics calculated from \code{glmmkin2randomvec}.
-#' @param meta.file.prefix a character vector for prefix of intermediate files (*.sample.* and *.resample.*). 
-#' @param n.files an integer vector with the same length as meta.files.prefix, indicating how many sets of intermediate files (.score.* and .var.*) are expected from each cohort, usually as the result of multi-threading in creating the intermediate files (default = rep(1, length(meta.files.prefix))).
-#' @param MAF.range a numeric vector of length 2 defining the minimum and maximum minor allele frequencies of variants that should be included in the analysis (default = c(1e-7, 0.5)).
-#' @param MAF.weight.beta a numeric vector of length 2 defining the beta probability density function parameters on the minor allele frequencies. This internal minor allele frequency weight is multiplied by the external weight given by the group.file. To turn off internal minor allele frequency weight and only use the external weight given by the group.file, use c(1, 1) to assign flat weights (default = c(1, 25)). Applied to the combined samples.
-#' @param missing.cutoff the maximum missing rate allowed for a variant to be included (default = 1, including all variants).
-#' @param auto.flip a logical switch for whether to enable automatic allele flipping if a variant with alleles ref/alt is not found at a position, but a variant at the same position with alleles alt/ref is found (default = FALSE). Use with caution for whole genome sequence data, as both ref/alt and alt/ref variants at the same position are not uncommon, and they are likely two different variants, rather than allele flipping.
-#' @param nperbatch an integer for how many SNPs should be tested in a batch (default = 10000). The computational time can increase dramatically if this value is either small or large. The optimal value for best performance depends on the user’s system.
+#' @description Perform score tests for association with genotypes in a GDS file .gds, and summary statistics and stochastics statistics calculated from \code{G.stat}.
+#' @param meta.file.prefix A character vector for prefix of intermediate files (*.sample.* and *.resample.*). 
+#' @param n.files An integer vector with the same length as meta.files.prefix, indicating how many sets of intermediate files (.score.* and .var.*) are expected from each cohort, usually as the result of multi-threading in creating the intermediate files (default = rep(1, length(meta.files.prefix))).
+#' @param MAF.range A numeric vector of length 2 defining the minimum and maximum minor allele frequencies of variants that should be included in the analysis (default = c(1e-7, 0.5)).
+#' @param miss.cutoff The maximum missing rate allowed for a variant to be included (default = 1, including all variants).
+#' @param auto.flip A logical switch for whether to enable automatic allele flipping if a variant with alleles ref/alt is not found at a position, but a variant at the same position with alleles alt/ref is found (default = FALSE). Use with caution for whole genome sequence data, as both ref/alt and alt/ref variants at the same position are not uncommon, and they are likely two different variants, rather than allele flipping.
+#' @param nperbatch An integer for how many SNPs should be tested in a batch (default = 10000). The computational time can increase dramatically if this value is either small or large. The optimal value for best performance depends on the user’s system.
 #' @return \code{svt.pval} returns a data frame with the following components:
 #' \item{SNP}{SNP name.}
 #' \item{chr}{chromosome name.}
@@ -467,9 +480,11 @@ svt.meta <- function(meta.files.prefix, n.files = rep(1, length(meta.files.prefi
 #' @seealso \code{glmmkin2randomvec}, \code{G.stat}
 #' @examples
 #' \donttest{
-#' library(GMMAT)
+#' library(StocSum)
 #' data(example)
 #' attach(example)
+#' seed <- 12345
+#' set.seed(seed)
 #' GRM.file <- system.file("extdata", "GRM.txt.bz2", package = "GMMAT")
 #' GRM <- as.matrix(read.table(GRM.file, check.names = FALSE))
 #' nullmod <- glmmkin(disease ~ age + sex, data = pheno, kins = GRM, id = "id", family = binomial(link = "logit"))
@@ -481,12 +496,11 @@ svt.meta <- function(meta.files.prefix, n.files = rep(1, length(meta.files.prefi
 #' }
 #' out.prefix <- "test"
 #' gdsfile <- system.file("extdata", "geno.gds", package = "GMMAT")
-#' G.stat(obj, geno.file = gdsfile, meta.file.prefix = out.prefix,MAF.range=c(0,0.5), miss.cutoff = 1)
+#' G.stat(obj, geno.file = gdsfile, meta.file.prefix = out.prefix, MAF.range=c(0,0.5), miss.cutoff = 1)
 #' out <- svt.pval(out.prefix, MAF.range=c(1e-7, 0.5), miss.cutoff = 1, auto.flip=F)
 #' }
 #' @keywords score test, generalized linear mixed model
 #' @export
-
 svt.pval <- function(meta.files.prefix, n.files = rep(1, length(meta.files.prefix)), MAF.range = c(1e-7, 0.5), miss.cutoff = 1, auto.flip = FALSE, nperbatch = 10000)
 {
     if(.Platform$endian!="little") stop("Error: platform must be little endian.")
@@ -645,38 +659,38 @@ svt.pval <- function(meta.files.prefix, n.files = rep(1, length(meta.files.prefi
 
 
 #' Variant Set Mixed Model Association Tests (StocSum)
-#' @description Variant Set Mixed Model Association Tests (the burden test, SKAT, SKAT-O, and an efficient hybrid test to combine the burden test and SKAT) for multiple user-defined test units and a null generalized linear mixed model.
-#' @param meta.file.prefix a character vector for prefix of intermediate files (*.sample.* and *.resample.*). 
-#' @param n.files an integer vector with the same length as meta.files.prefix, indicating how many sets of intermediate files (.score.* and .var.*) are expected from each cohort, usually as the result of multi-threading in creating the intermediate files (default = rep(1, length(meta.files.prefix))).
-#' @param cohort.group.idx a vector with the same length as meta.files.prefix, indicating which cohorts should be grouped together in the meta-analysis assuming homogeneous genetic effects. For example, c("a","b","a","a","b") means cohorts 1, 3, 4 are assumed to have homogeneous genetic effects, and cohorts 2, 5 are in another group with homogeneous genetic effects (but possibly heterogeneous with group "a"). If NULL, all cohorts are in the same group (default = NULL).
-#' @param group.file a plain text file with 6 columns defining the test units. There should be no headers in the file, and the columns are group name, chromosome, position, reference allele, alternative allele and weight, respectively.
-#' @param group.file.sep the delimiter in group.file (default = "\\t").
-#' @param MAF.range a numeric vector of length 2 defining the minimum and maximum minor allele frequencies of variants that should be included in the analysis (default = c(1e-7, 0.5)).
-#' @param MAF.weight.beta a numeric vector of length 2 defining the beta probability density function parameters on the minor allele frequencies. This internal minor allele frequency weight is multiplied by the external weight given by the group.file. To turn off internal minor allele frequency weight and only use the external weight given by the group.file, use c(1, 1) to assign flat weights (default = c(1, 25)). Applied to the combined samples.
-#' @param missing.cutoff the maximum missing rate allowed for a variant to be included (default = 1, including all variants).
-#' @param method a method to compute p-values for SKAT-type test statistics (default = "davies"). "davies" represents an exact method that computes a p-value by inverting the characteristic function of the mixture chisq distribution, with an accuracy of 1e-6. When "davies" p-value is less than 1e-5, it defaults to method "kuonen". "kuonen" represents a saddlepoint approximation method that computes the tail probabilities of the mixture chisq distribution. When "kuonen" fails to compute a p-value, it defaults to method "liu". "liu" is a moment-matching approximation method for the mixture chisq distribution.
-#' @param tests a character vector indicating which tests should be performed ("B" for the burden test, "S" for SKAT, "O" for SKAT-O and "E" for the efficient hybrid test of the burden test and SKAT). The burden test and SKAT are automatically included when performing "O", and the burden test is automatically included when performing "E" (default = "E").
-#' @param rho a numeric vector defining the search grid used in SKAT-O (see the SKAT-O paper for details). Not used for the burden test, SKAT or the efficient hybrid test of the burden test and SKAT (default = c(0, 0.1^2, 0.2^2, 0.3^2, 0.4^2, 0.5^2, 0.5, 1)).
-#' @param use.minor.allele a logical switch for whether to use the minor allele (instead of the alt allele) as the coding allele (default = FALSE). It does not change SKAT results, but Burden (as well as SKAT-O and hybrid test to combine the burden test and SKAT) will be affected. Along with the MAF filter, this option is useful for combining rare mutations, assuming rare allele effects are in the same direction. Use with caution, as major/minor alleles may flip in different cohorts. In that case, minor allele will be determined based on the allele frequency in the combined samples.
-#' @param auto.flip a logical switch for whether to enable automatic allele flipping if a variant with alleles ref/alt is not found at a position, but a variant at the same position with alleles alt/ref is found (default = FALSE). Use with caution for whole genome sequence data, as both ref/alt and alt/ref variants at the same position are not uncommon, and they are likely two different variants, rather than allele flipping.
-#' @return \code{G.pval} returns a data frame with the following components:
-#' \item{groups}{name of the test unit group.}
-#' \item{n.variants}{number of variants in the test unit group that pass the missing rate and allele frequency filters.}
-#' \item{B.score}{burden test score statistic (avaiable if test is Burden, SKATO, or SMMAT).}
-#' \item{B.var}{variance of burden test score statistic (avaiable if test is Burden, SKATO, or SMMAT).}
-#' \item{B.pval}{burden test p-value (avaiable if test is Burden, SKATO, or SMMAT).}
-#' \item{S.pval}{SKAT p-value (avaiable if test is SKATO or SKAT).}
-#' \item{O.pval}{SKAT-O p-value (avaiable if test is SKATO).}
-#' \item{E.pval}{efficient hybrid test of the burden test and SKAT p-value (avaiable if test is SMMAT).}
+#' @description 
+#' {Variant Set Mixed Model Association Tests (the burden test, SKAT, SKAT-O, and an efficient hybrid test to combine the burden test and SKAT) for multiple user-defined test units and a null generalized linear mixed model.
+#' 
+#' Two steps to perform variant set tests. \code{G.pval} takes the returned R object from \code{G.prep} and uses less memory (if the returned R object from \code{G.prep} is saved to an R data file, the R session is terminated, and this R object is loaded into a new R session for running \code{G.pval}), especially when \code{group.file} contains only a subset of variants from \code{geno.file}.}
+#' @param meta.file.prefix A character vector for prefix of intermediate files (*.sample.* and *.resample.*). 
+#' @param n.files An integer vector with the same length as meta.files.prefix, indicating how many sets of intermediate files (.score.* and .var.*) are expected from each cohort, usually as the result of multi-threading in creating the intermediate files (default = rep(1, length(meta.files.prefix))).
+#' @param cohort.group.idx A vector with the same length as meta.files.prefix, indicating which cohorts should be grouped together in the meta-analysis assuming homogeneous genetic effects. For example, c("a","b","a","a","b") means cohorts 1, 3, 4 are assumed to have homogeneous genetic effects, and cohorts 2, 5 are in another group with homogeneous genetic effects (but possibly heterogeneous with group "a"). If NULL, all cohorts are in the same group (default = NULL).
+#' @param group.file A plain text file with 6 columns defining the test units. There should be no headers in the file, and the columns are group name, chromosome, position, reference allele, alternative allele and weight, respectively.
+#' @param group.file.sep The delimiter in group.file (default = "\\t").
+#' @param auto.flip A logical switch for whether to enable automatic allele flipping if a variant with alleles ref/alt is not found at a position, but a variant at the same position with alleles alt/ref is found (default = FALSE). Use with caution for whole genome sequence data, as both ref/alt and alt/ref variants at the same position are not uncommon, and they are likely two different variants, rather than allele flipping.
+#' @return \code{G.prep} returns a list of class G.prep with the following components:
+#' \item{meta.file.prefix}{a character vector for prefix of intermediate files (*.sample.* and *.resample.*).}
+#' \item{n.cohort}{the number of cohorts.}
+#' \item{cohort.group.idx}{inherited from input argument \code{cohort.group.idx}.}
+#' \item{n.cohort.groups}{the number of groups of cohorts.}
+#' \item{n.groups}{the test unit group number.}
+#' \item{groups}{a vector with the length of \code{n.groups}, storing the test unit group name.}
+#' \item{group.idx.start}{the start position of each test unit group in group.file. The length of group.idx.start equals to \code{n.groups}.}
+#' \item{group.idx.end}{the end position of each test unit group in group.file. The length of group.idx.start equals to \code{n.groups}..}
+#' \item{scores}{a list with length of \code{n.cohort}. Each element is a martrix with row numbers equal to the total SNPs in each cohort and 15 columns defining the test units. The columns are group name, chromosome, position, reference allele, alternative allele, weight, group.idx, idx, sample size, missrate, alternative frequency, SCORE, file number, variant.idx, and flip, respectively.}
+#' \item{auto.filp}{inherited from input argument \code{auto.flip}.}
 #' @reference 
 #' @author Han Chen, Nannan Wang
-#' @seealso \code{glmmkin2randomvec}, \code{G.stat}
+#' @seealso \code{glmmkin2randomvec}, \code{G.stat}, \code{G.pval}
 #' @examples
 #' \donttest{
-#' library(GMMAT)
+#' library(StocSum)
 #' data(example)
 #' attach(example)
-#' GRM.file <- system.file("extdata", "GRM.txt.bz2", package = "GMMAT")
+#' seed <- 12345
+#' set.seed(seed)
+#' GRM.file <- system.file("extdata", "GRM.txt.bz2", package = "StocSum")
 #' GRM <- as.matrix(read.table(GRM.file, check.names = FALSE))
 #' nullmod <- glmmkin(disease ~ age + sex, data = pheno, kins = GRM, id = "id", family = binomial(link = "logit"))
 #' if(!is.null(nullmod$P)){
@@ -688,12 +702,12 @@ svt.pval <- function(meta.files.prefix, n.files = rep(1, length(meta.files.prefi
 #' out.prefix <- "test"
 #' gdsfile <- system.file("extdata", "geno.gds", package = "GMMAT")
 #' G.stat(obj, geno.file = gdsfile, meta.file.prefix = out.prefix,MAF.range=c(0,0.5), miss.cutoff = 1)
-#' group.file <- system.file("extdata", "SetID.withweights.txt", package = "GMMAT")
-#' out2 <- G.pval(out.prefix, group.file = group.file, MAF.range=c(0,0.5), miss.cutoff = 1)
+#' group.file <- system.file("extdata", "SetID.withweights.txt", package = "StocSum")
+#' obj.prep <- G.prep(out.prefix, n.files = 1, group.file = group.file, auto.flip=F)
+#' save(obj.prep,file=paste0(out.prefix,".prepobj.Rdata"))
 #' }
 #' @keywords variant set-based test
 #' @export
-
 G.prep <- function(meta.files.prefix, n.files = rep(1, length(meta.files.prefix)), cohort.group.idx = NULL, group.file, group.file.sep = "\t", auto.flip = FALSE)
 {
     if(.Platform$endian!="little") stop("Error: platform must be little endian.")
@@ -705,7 +719,7 @@ G.prep <- function(meta.files.prefix, n.files = rep(1, length(meta.files.prefix)
         n.cohort.groups <- length(unique(cohort.group.idx))
     }
     # group.info <- try(read.table(group.file, header = FALSE, stringsAsFactors = FALSE, sep = group.file.sep), silent = TRUE)
-    group.info<- try(fread(group.file,header=FALSE,stringsAsFactors = FALSE, sep=group.file.sep, data.table = FALSE), silent = TRUE)
+    group.info<- try(fread(group.file, header=FALSE, stringsAsFactors = FALSE, sep=group.file.sep, data.table = FALSE), silent = TRUE)
     if (class(group.info) == "try-error") {
         stop("Error: cannot read group.file!")
     }
@@ -779,6 +793,61 @@ G.prep <- function(meta.files.prefix, n.files = rep(1, length(meta.files.prefix)
     return(out)
 }
 
+
+#' Variant Set Mixed Model Association Tests (StocSum)
+#' @description 
+#' Variant Set Mixed Model Association Tests (the burden test, SKAT, SKAT-O, and an efficient hybrid test to combine the burden test and SKAT) for multiple user-defined test units and a null generalized linear mixed model.
+#' 
+#' Two steps to perform variant set tests. \code{G.pval} takes the returned R object from \code{G.prep} and uses less memory (if the returned R object from \code{G.prep} is saved to an R data file, the R session is terminated, and this R object is loaded into a new R session for running \code{G.pval}), especially when \code{group.file} contains only a subset of variants from \code{geno.file}.}
+#' @param G.prep.obj A class G.prep object, returned by \code{G.prep}.
+#' @param MAF.range A numeric vector of length 2 defining the minimum and maximum minor allele frequencies of variants that should be included in the analysis (default = c(1e-7, 0.5)).
+#' @param MAF.weight.beta A numeric vector of length 2 defining the beta probability density function parameters on the minor allele frequencies. This internal minor allele frequency weight is multiplied by the external weight given by the group.file. To turn off internal minor allele frequency weight and only use the external weight given by the group.file, use c(1, 1) to assign flat weights (default = c(1, 25)). Applied to the combined samples.
+#' @param miss.cutoff The maximum missing rate allowed for a variant to be included (default = 1, including all variants).
+#' @param method A method to compute p-values for SKAT-type test statistics (default = "davies"). "davies" represents an exact method that computes a p-value by inverting the characteristic function of the mixture chisq distribution, with an accuracy of 1e-6. When "davies" p-value is less than 1e-5, it defaults to method "kuonen". "kuonen" represents a saddlepoint approximation method that computes the tail probabilities of the mixture chisq distribution. When "kuonen" fails to compute a p-value, it defaults to method "liu". "liu" is a moment-matching approximation method for the mixture chisq distribution.
+#' @param tests A character vector indicating which tests should be performed ("B" for the burden test, "S" for SKAT, "O" for SKAT-O and "E" for the efficient hybrid test of the burden test and SKAT). The burden test and SKAT are automatically included when performing "O", and the burden test is automatically included when performing "E" (default = "E").
+#' @param rho A numeric vector defining the search grid used in SKAT-O (see the SKAT-O paper for details). Not used for the burden test, SKAT or the efficient hybrid test of the burden test and SKAT (default = c(0, 0.1^2, 0.2^2, 0.3^2, 0.4^2, 0.5^2, 0.5, 1)).
+#' @param use.minor.allele A logical switch for whether to use the minor allele (instead of the alt allele) as the coding allele (default = FALSE). It does not change SKAT results, but Burden (as well as SKAT-O and hybrid test to combine the burden test and SKAT) will be affected. Along with the MAF filter, this option is useful for combining rare mutations, assuming rare allele effects are in the same direction. Use with caution, as major/minor alleles may flip in different cohorts. In that case, minor allele will be determined based on the allele frequency in the combined samples.
+#' @return \code{G.pval} returns a data frame with the following components:
+#' \item{groups}{name of the test unit group.}
+#' \item{n.variants}{number of variants in the test unit group that pass the missing rate and allele frequency filters.}
+#' \item{B.score}{burden test score statistic (avaiable if test is Burden, SKATO, or SMMAT).}
+#' \item{B.var}{variance of burden test score statistic (avaiable if test is Burden, SKATO, or SMMAT).}
+#' \item{B.pval}{burden test p-value (avaiable if test is Burden, SKATO, or SMMAT).}
+#' \item{S.pval}{SKAT p-value (avaiable if test is SKATO or SKAT).}
+#' \item{O.pval}{SKAT-O p-value (avaiable if test is SKATO).}
+#' \item{E.pval}{efficient hybrid test of the burden test and SKAT p-value (avaiable if test is SMMAT).}
+#' @reference 
+#' @author Han Chen, Nannan Wang
+#' @seealso \code{glmmkin2randomvec}, \code{G.stat}, \code{G.prep}
+#' @examples
+#' \donttest{
+#' library(StocSum)
+#' data(example)
+#' attach(example)
+#' seed <- 12345
+#' set.seed(seed)
+#' GRM.file <- system.file("extdata", "GRM.txt.bz2", package = "StocSum")
+#' GRM <- as.matrix(read.table(GRM.file, check.names = FALSE))
+#' nullmod <- glmmkin(disease ~ age + sex, data = pheno, kins = GRM, id = "id", family = binomial(link = "logit"))
+#' if(!is.null(nullmod$P)){
+#'   obj <- glmmkin2randomvec(nullmod)
+#' }else{
+#'   kinship.chol <- chol(GRM)
+#'   obj<-glmmkin2randomvec(nullmod, Z = list(t(kinship.chol)))
+#' }
+#' out.prefix <- "test"
+#' gdsfile <- system.file("extdata", "geno.gds", package = "GMMAT")
+#' G.stat(obj, geno.file = gdsfile, meta.file.prefix = out.prefix,MAF.range=c(0,0.5), miss.cutoff = 1)
+#' group.file <- system.file("extdata", "SetID.withweights.txt", package = "StocSum")
+#' obj.prep <- G.prep(out.prefix, n.files = 1, group.file = group.file, auto.flip=F)
+#' save(obj.prep,file=paste0(out.prefix,".prepobj.Rdata"))
+#' obj.prep <- get(load(paste0(out.prefix,".prepobj.Rdata")))
+#' out <- G.pval(obj.prep, MAF.range = c(0,0.5), miss.cutoff = 1, method = "davies")
+#' print(out)
+#' unink(paste0(out.prefix,"prepobj.Rdata"))
+#' }
+#' @keywords variant set-based test
+#' @export
 G.pval <- function(G.prep.obj, MAF.range = c(1e-7, 0.5), MAF.weights.beta = c(1, 25), miss.cutoff = 1, method = "davies", tests = "E", rho = c(0, 0.1^2, 0.2^2, 0.3^2, 0.4^2, 0.5^2, 0.5, 1), use.minor.allele = FALSE)
 {
     if(class(G.prep.obj) != "G.prep") stop("Error: G.prep.obj must be a class G.prep object!")
@@ -793,8 +862,6 @@ G.pval <- function(G.prep.obj, MAF.range = c(1e-7, 0.5), MAF.weights.beta = c(1,
     group.idx.start <- G.prep.obj$group.idx.start
     group.idx.end <- G.prep.obj$group.idx.end
     scores <- G.prep.obj$scores
-    # N.resampling <- G.prep.obj$N.resampling
-    # cons <- G.prep.obj$cons
     auto.flip <- G.prep.obj$auto.flip
     if(any(!tests %in% c("B", "S", "O", "E"))) stop("Error: \"tests\" should only include \"B\" for the burden test, \"S\" for SKAT, \"O\" for SKAT-O or \"E\" for the efficient hybrid test of the burden test and SKAT.")
     Burden <- "B" %in% tests
@@ -803,10 +870,6 @@ G.pval <- function(G.prep.obj, MAF.range = c(1e-7, 0.5), MAF.weights.beta = c(1,
     SMMAT <- "E" %in% tests
     cons <- vector("list", n.cohort)
     N.resampling <- rep(0, n.cohort)
-    # if(auto.flip) {
-    #     cat("Automatic allele flipping enabled...\nVariants matching alt/ref but not ref/alt alleles will also be included, with flipped effects\n")
-    #     variant.id2 <- paste(group.info$chr, group.info$pos, group.info$alt, group.info$ref, sep = ":")
-    # }
     for(i in 1:n.cohort) {
         cons[[i]] <- file(paste0(meta.files.prefix[i], ".resample.1"), "rb")
         N.resampling[i] <- readBin(cons[[i]], what = "integer", n = 1, size = 4)
@@ -827,7 +890,6 @@ G.pval <- function(G.prep.obj, MAF.range = c(1e-7, 0.5), MAF.weights.beta = c(1,
     current.lines <- current.cons <- rep(1, n.cohort)
     for(i in 1:n.groups) {
         tmp.idx <- group.idx.start[i]:group.idx.end[i]
-        #tmp.group.info <- group.info[tmp.idx, , drop = FALSE]
         U.list <- V.list <- vector("list", n.cohort)
         variant.indices <- tmp.N <- tmp.Nmiss <- tmp.AC <- c()
         for(j in 1:n.cohort) {
@@ -950,7 +1012,62 @@ G.pval <- function(G.prep.obj, MAF.range = c(1e-7, 0.5), MAF.weights.beta = c(1,
     return(out)
 }
 
-Cond.svt.pval <- function(meta.files.prefix, n.files = rep(1, length(meta.files.prefix)), tagChr, StartPos, EndPos, tagPos, MAF.range = c(1e-7, 0.5), miss.cutoff = 1, auto.flip = FALSE, nperbatch = 10000, tol=1e-5)
+
+#' Conditional analysis
+#' @description 
+#' Conditional analysis.
+#' @param meta.file.prefix A character vector for prefix of intermediate files (*.sample.* and *.resample.*). 
+#' @param n.files An integer vector with the same length as meta.files.prefix, indicating how many sets of intermediate files (.score.* and .var.*) are expected from each cohort, usually as the result of multi-threading in creating the intermediate files (default = rep(1, length(meta.files.prefix))).
+#' @param tagChr The chromosome of associated variants condition on.
+#' @param StartPos The start position of variants to be tested.
+#' @param EndPos The end position of variants to be tested.
+#' @param tagPos The position of associated variants condition on.
+#' @param MAF.range A numeric vector of length 2 defining the minimum and maximum minor allele frequencies of variants that should be included in the analysis (default = c(1e-7, 0.5)).
+#' @param miss.cutoff The maximum missing rate allowed for a variant to be included (default = 1, including all variants).
+#' @param auto.flip A logical switch for whether to enable automatic allele flipping if a variant with alleles ref/alt is not found at a position, but a variant at the same position with alleles alt/ref is found (default = FALSE). Use with caution for whole genome sequence data, as both ref/alt and alt/ref variants at the same position are not uncommon, and they are likely two different variants, rather than allele flipping.
+#' @param nperbatch An integer for how many SNPs should be tested in a batch (default = 10000). The computational time can increase dramatically if this value is either small or large. The optimal value for best performance depends on the user’s system.
+#' @param tol The threshold for the variance of a variant. If the variance of a variant less than the tolerance, its association test p-value will be NA (default = 1e-5).
+#' @return \code{Cond.svt.pval} returns a data frame with the following components:
+#' \item{SNP}{SNP name.}
+#' \item{chr}{chromosome name.}
+#' \item{pos}{the genome location of SNP.}
+#' \item{ref}{allele of reference.}
+#' \item{alt}{alternative allele.}
+#' \item{N}{total sample size.}
+#' \item{missrate}{missing rate of variants.}
+#' \item{altfreq}{alternative allele frequency.}
+#' \item{SCORE}{the summary score of the alternaive allele.}
+#' \item{VAL}{the variance of the summary score.}
+#' \item{PVAL}{the conditional p-value of the suammry score.}
+#' @reference 
+#' @author Han Chen, Nannan Wang
+#' @seealso \code{glmmkin2randomvec}, \code{G.stat}
+#' @examples
+#' \donttest{
+#' library(StocSum)
+#' data(example)
+#' attach(example)
+#' seed <- 12345
+#' set.seed(seed)
+#' GRM.file <- system.file("extdata", "GRM.txt.bz2", package = "StocSum")
+#' GRM <- as.matrix(read.table(GRM.file, check.names = FALSE))
+#' nullmod <- glmmkin(disease ~ age + sex, data = pheno, kins = GRM, id = "id", family = binomial(link = "logit"))
+#' if(!is.null(nullmod$P)){
+#'   obj <- glmmkin2randomvec(nullmod)
+#' }else{
+#'   kinship.chol <- chol(GRM)
+#'   obj<-glmmkin2randomvec(nullmod, Z = list(t(kinship.chol)))
+#' }
+#' out.prefix <- "test"
+#' gdsfile <- system.file("extdata", "geno.gds", package = "GMMAT")
+#' G.stat(obj, geno.file = gdsfile, meta.file.prefix = out.prefix,MAF.range=c(0,0.5), miss.cutoff = 1)
+#' out <- Cond.svt.pval(out.prefix, n.files = 1, tagChr = 1, StartPos = 1, EndPos = 100, tagPos = 82, MAF.range=c(0,0.5), miss.cutoff = 1, auto.flip=F)
+#' print(out)
+#' }
+#' @keywords conditional analysis
+#' @export
+#' 
+Cond.svt.pval <- function(meta.files.prefix, n.files = rep(1, length(meta.files.prefix)), tagChr, StartPos, EndPos, tagPos, MAF.range = c(1e-7, 0.5), miss.cutoff = 1, auto.flip = FALSE, nperbatch = 10000, tol = 1e-5)
 {
     if(.Platform$endian!="little") stop("Error: platform must be little endian.")
     n.cohort <- length(meta.files.prefix)
@@ -1043,7 +1160,6 @@ Cond.svt.pval <- function(meta.files.prefix, n.files = rep(1, length(meta.files.
         N.resampling[i] <- readBin(cons[[i]], what = "integer", n = 1, size = 4)
     }
     current.lines <- current.cons <- rep(1, n.cohort)
-
     tmp.idx <- group.info$idx[group.info$pos %in% tagPos]
     U.list <- V.list <- vector("list", n.cohort)
     variant.indices <- tmp.N <- tmp.Nmiss <- tmp.AC <- c()
@@ -1107,9 +1223,7 @@ Cond.svt.pval <- function(meta.files.prefix, n.files = rep(1, length(meta.files.
         N.resampling[j] <- readBin(cons[[j]], what = "integer", n = 1, size = 4)
     }
     for(i in 1:nbatch.flush) {
-        # print(i)
         tmp.idx <- if(i == nbatch.flush) group.info$idx[((i-1)*nperbatch+1):p] else group.info$idx[((i-1)*nperbatch+1):(i*nperbatch)]
-        #tmp.group.info <- group.info[tmp.idx, , drop = FALSE]
         U.list <- V.list <- vector("list", n.cohort)
         variant.indices <- tmp.N <- tmp.Nmiss <- tmp.AC <- c()
         for(j in 1:n.cohort) {
@@ -1128,14 +1242,8 @@ Cond.svt.pval <- function(meta.files.prefix, n.files = rep(1, length(meta.files.
                         if(tmp.N.resampling != N.resampling[j]) stop(paste0("Error: N.resampling in ", meta.files.prefix[j], ".resample.", current.cons[j], " does not match that in ",meta.files.prefix[j], ".resample.1"))
                         current.lines[j] <- 1
                     }
-                    # a <-seek(cons[[j]], where = 0, origin = "current", rw = "read")    # 
-                    # print(a) #
                     if(U.list[[j]]$variant.idx[ij]!=current.lines[j]) seek(cons[[j]], where = 4*N.resampling[j]*(U.list[[j]]$variant.idx[ij]-current.lines[j]), origin = "current", rw = "read")  
                     tmp.V[ij,] <- readBin(cons[[j]], what = "numeric", n = N.resampling[j], size = 4)
-                    # a <-seek(cons[[j]], where = 0, origin = "current", rw = "read")    # 
-                    # print(a) # 
-                    # print(U.list[[j]]$variant.idx[ij])
-                    # pause(2)
                     current.lines[j] <- U.list[[j]]$variant.idx[ij]+1
                 }
                 V.list[[j]] <- tmp.V * U.list[[j]]$flip / sqrt(N.resampling[j])
@@ -1173,13 +1281,10 @@ Cond.svt.pval <- function(meta.files.prefix, n.files = rep(1, length(meta.files.
         Vb1_V<-tcrossprod(Vb1) #*_V variance matrix
         Vb1_V_i <- try(solve(Vb1_V), silent = TRUE)
         Tadj<-tcrossprod(tcrossprod(V,Vb1), Vb1_V_i)
-        # Tadj<-(V %*% t(Vb1)) %*% Vb1_V_i
         U.adj<-U- Tadj %*% Ub1
         V.adj<- V - Tadj %*% Vb1
-        # out$cor <- cor(V, Vb1)
         out$SCORE <- U.adj
         out$VAR <- rowSums(V.adj^2)
-        # out$PVAL <- pchisq(out$SCORE^2/out$VAR, 1, lower = FALSE)
         out$PVAL <- ifelse(out$VAR>tol, pchisq(out$SCORE^2/out$VAR, 1, lower = FALSE), 1)
         cor<-rep(0, length(out$PVAL))
         for(iii in 1:length(out$PVAL)){

@@ -1,17 +1,13 @@
 #' Create random vectors for a glmmkin object for LD Score regresion
 #' @description Generate random vectors from multivariate normal distribution with mean 0 and covariance matrix P, in which \eqn P = I-1inv((t(1)1))t(1).
 #' @param obj The glmmkin object.
-#' @param Z NULL. %% A list of design matrices for the random effects. The length must match the number of variance components.
 #' @param N.randomvec The number of random vectors to generate (default = 1000).
-#' @param group.idx NULL. %%A length N index vector showing which observation belongs to which variance group, for heteroscedastic linear mixed models (default = NULL for homoscedastic linear mixed models).
-#' @param cluster.idx NULL. %% A length N index vector showing which observation belongs to which cluster (default = NULL for no clusters).
-#' @param robust FALSE. %% A logical switch: whether robust variance should be used (default = FALSE).
 #' @return A list of class glmmkin.randomvec
-#' \item{theta}{ set to be 1. %% Variance estimates, inherited from the glmmkin object.}
-#' \item{scaled.residuals}{Scaled residuals, inherited from the glmmkin object.}
-#' \item{random.vectors}{An N by N.randomvec matrix of the random vectors generated.}
-#' \item{X}{model matrix for the fixed effects from the glmmkin object}
-#' \item{id_include}{The ID vector of included samples, inherited from the glmmkin object.}
+#' \item{theta}{ set to be 1.}
+#' \item{scaled.residuals}{inherited from the glmmkin object. A vector or a matrix for the scaled residuals, calculated as the original residuals divided by the dispersion parameter (in heteroscedastic linear mixed models, corresponding residual variance estimates by each group).}
+#' \item{random.vectors}{A random matrix with dimensions equal to the sample size multiplied by \code{N.randomvec}. as.vector(r) is from multivate normal distribution with mean 0 and covariance matrix \eqn P = I-1inv((t(1)1))t(1).}
+#' \item{r}{A random matrix with dimensions equal to the sample size multiplied by \code{N.randomvec}. as.vector(r) is from multivate normal distribution with mean 0 and covariance matrix I.}
+#' \item{id_include}{inherited from the glmmkin object. A vector indivating the samples included in model fit.}
 #' @reference 
 #' @author Han Chen, Nannan Wang
 #' @examples
@@ -19,6 +15,8 @@
 #' library(GMMAT)
 #' data(example)
 #' attach(example)
+#' seed <- 12345
+#' set.seed(seed)
 #' GRM.file <- system.file("extdata", "GRM.txt.bz2", package = "GMMAT")
 #' GRM <- as.matrix(read.table(GRM.file, check.names = FALSE))
 #' nullmod <- glmmkin(disease ~ age + sex, data = pheno, kins = GRM, id = "id", family = binomial(link = "logit"))
@@ -26,11 +24,10 @@
 #' }
 #' @keywords random vector
 #' @export
-
-LDSC.glmmkin2randomvec <- function(obj, Z = NULL, N.randomvec = 1000, group.idx = NULL, cluster.idx = NULL, robust = FALSE) {
+LDSC.glmmkin2randomvec <- function(obj, N.randomvec = 1000) {
     if(class(obj) != "glmmkin") stop("Error: \"obj\" must be a class glmmkin object.")
     N <- length(obj$id_include)
-    random.vectors <- matrix(rnorm(N*N.randomvec),nrow=N,ncol=N.randomvec)
+    random.vectors <- matrix(rnorm(N*N.randomvec), nrow = N, ncol = N.randomvec)
     r<-random.vectors
     obj$P<-NULL
     obj$Sigma_i<-diag(N)
@@ -39,43 +36,53 @@ LDSC.glmmkin2randomvec <- function(obj, Z = NULL, N.randomvec = 1000, group.idx 
     obj$theta<-1
     obj$n.groups<-1
     Z <- NULL
-    if(!is.null(obj$P) && !robust) {
-        eig <- eigen(obj$P, symmetric = TRUE)
-        random.vectors <- tcrossprod(eig$vectors, t(random.vectors * sqrt(pmax(eig$values, 0))))
-        rm(eig)
-    } else {
-        if(obj$n.groups != 1 && (is.null(group.idx) || !all.equal(seq_len(obj$n.groups), sort(unique(group.idx))))) stop("Error: heteroscedastic linear mixed models should include a valid group.idx argument.")
-        if(is.null(group.idx)) group.idx <- rep(1, N)
-        if(!robust) random.vectors <- sqrt(obj$theta[group.idx]) * random.vectors
-        #		else random.vectors <- random.vectors * abs(obj$residuals)
-        else {
-            res <- as.numeric(obj$Y - tcrossprod(obj$X, t(obj$coefficient)))
-            if(is.null(cluster.idx)) random.vectors <- random.vectors * res
-            else random.vectors <- random.vectors[match(cluster.idx,unique(cluster.idx)),] * res
-        }
-        if(!is.null(Z)) {
-            if(class(Z) != "list") stop("Error: \"Z\" must be a list of matrices.")
-            if(length(Z) != length(obj$theta) - obj$n.groups) stop("Error: number of matrices in \"Z\" does not match the number of variance components in \"obj\".")
-            for(i in 1:length(Z)) {
-                if(nrow(Z[[i]]) != N) stop("Error: \"Z\" matrix ", i, " is not compatible in sample size with \"obj\".")
-                p <- ncol(Z[[i]])
-                if(obj$theta[i+obj$n.groups] < 0) stop("Error: negative variance component estimates are not allowed.")
-                if(obj$theta[i+obj$n.groups] == 0) next
-                random.vectors2 <- matrix(rnorm(p*N.randomvec), nrow=N.randomvec, ncol=p)
-                random.vectors <- random.vectors + sqrt(obj$theta[i+obj$n.groups]) * tcrossprod(Z[[i]], random.vectors2)
-            }
-        }
-        if(!is.null(obj$P)) random.vectors <- crossprod(obj$P, random.vectors)
-        else {
-            random.vectors <- crossprod(obj$Sigma_i, random.vectors) - tcrossprod(obj$Sigma_iX, tcrossprod(crossprod(random.vectors, obj$Sigma_iX), obj$cov))
-        }
-    }
+    group.idx = NULL
+    if(is.null(group.idx)) group.idx <- rep(1, N)
+    random.vectors <- sqrt(obj$theta[group.idx]) * random.vectors
+    random.vectors <- crossprod(obj$Sigma_i, random.vectors) - tcrossprod(obj$Sigma_iX, tcrossprod(crossprod(random.vectors, obj$Sigma_iX), obj$cov))
     out <- list(theta = obj$theta, scaled.residuals = obj$scaled.residuals, random.vectors = as.matrix(random.vectors),r=as.matrix(r), id_include = obj$id_include)
     class(out) <- "glmmkin.randomvec"  #LDSC.randomvec
     return(out)
 }
 
+
 ####LDSC.stat is same as G.stat
+#' Calculate summary statistics and stochastic statistics
+#' @description Calculate summary statistics and stochastic statistics.
+#' @param null.obj A class glmmkin.randomvec object, returned by generating random vectors using \code{glmmkin2randomvec}.
+#' @param geno.file The .gds file name or an object of class SeqVarGDSClass for the full genotypes. The \code{sample.id} in \code{geno.file} should overlap \code{id_include} in \code{null.obj}. It is recommended that \code{sample.id} in \code{geno.file} include the full samples (at least all samples as specified in \code{id_include} of \code{null.obj}). It is not necessary for the user to take a subset of \code{geno.file} before running the analysis. If \code{geno.file} is an object of class SeqVarGDSClass, the .gds file will be closed upon successful completion of the function.
+#' @param meta.file.prefix Prefix of intermediate files (*.sample.1 and *.resample.1) required in \code{G.pval}.
+#' @param MAF.range A numeric vector of length 2 defining the minimum and maximum minor allele frequencies of variants that should be included in the analysis (default = c(1e-7, 0.5)).
+#' @param miss.cutoff The maximum missing rate allowed for a variant to be included (default = 1, including all variants).
+#' @param missing.method Method of handling missing genotypes. Either "impute2mean" or "impute2zero" (default = "impute2mean").
+#' @param nperbatch An integer for how many SNPs to be included in a batch (default = 10000). The computational time can increase dramatically if this value is either small or large. The optimal value for best performance depends on the user’s system.
+#' @param ncores A positive integer indicating the number of cores to be used in parallel computing (default = 1).
+#' @return NULL. \code{G.stat} will store the summary statistics and the stochastic statistics in two files with the prefix specified by user.
+#' @reference 
+#' @author Han Chen, Nannan Wang
+#' @seealso \code{glmmkin2randomvec}, \code{G.pval}
+#' @examples
+#' \donttest{
+#' library(StocSum)
+#' data(example)
+#' attach(example)
+#' seed <- 12345
+#' set.seed(seed)
+#' GRM.file <- system.file("extdata", "GRM.txt.bz2", package = "GMMAT")
+#' GRM <- as.matrix(read.table(GRM.file, check.names = FALSE))
+#' nullmod <- glmmkin(disease ~ age + sex, data = pheno, kins = GRM, id = "id", family = binomial(link = "logit"))
+#' if(!is.null(nullmod$P)){
+#'   obj <- glmmkin2randomvec(nullmod)
+#' }else{
+#'   kinship.chol <- chol(GRM)
+#'   obj<-glmmkin2randomvec(nullmod, Z = list(t(kinship.chol)))
+#' }
+#' out.prefix <- "test"
+#' gdsfile <- system.file("extdata", "geno.gds", package = "GMMAT")
+#' G.stat(obj, geno.file = gdsfile, meta.file.prefix = out.prefix, MAF.range=c(0,0.5), miss.cutoff = 1)
+#' }
+#' @keywords summary statistics
+#' @export
 G.stat <- function(null.obj, geno.file, meta.file.prefix, MAF.range = c(1e-7, 0.5), miss.cutoff = 1, missing.method = "impute2mean", nperbatch = 10000, ncores = 1)
 {
   if(Sys.info()["sysname"] == "Windows" && ncores > 1) {
@@ -151,15 +158,6 @@ G.stat <- function(null.obj, geno.file, meta.file.prefix, MAF.range = c(1e-7, 0.
           miss.idx <- which(is.na(geno))
           geno[miss.idx] <- if(missing.method=="impute2mean") 2*out$altfreq[ceiling(miss.idx/nrow(geno))] else 0
         }
-        #adding by NW----start
-        # sdgeno<-apply(geno,2,sd)
-        # geno<-sweep(geno,2,sdgeno,'/')
-        # for(i in seq(1, ncol(geno),1)){
-        #   geno[,i] <- geno[,i]/sd(geno[,i])
-        #   # geno[,i] <- (geno[,i]-mean(geno[,i]))
-        #   # geno[,i] <- geno[,i]/sd(geno[,i])
-        # }
-        #adding by NW----end
         out$SCORE <- as.vector(crossprod(geno, residuals))
         write.table(out[,c("SNP", "chr", "pos", "ref", "alt", "N", "missrate", "altfreq", "SCORE")], meta.file.sample, quote=FALSE, row.names=FALSE, col.names=FALSE, append=TRUE, na=".")
         writeBin(as.numeric(crossprod(residuals2, geno)), meta.file.resample.handle, size = 4)
@@ -209,15 +207,6 @@ G.stat <- function(null.obj, geno.file, meta.file.prefix, MAF.range = c(1e-7, 0.
         miss.idx <- which(is.na(geno))
         geno[miss.idx] <- if(missing.method=="impute2mean") 2*out$altfreq[ceiling(miss.idx/nrow(geno))] else 0
       }
-      #adding by NW----start
-      # sdgeno<-apply(geno,2,sd)
-      # geno<-sweep(geno,2,sdgeno,'/')
-      # for(i in seq(1, ncol(geno),1)){
-      #   geno[,i] <- geno[,i]/sd(geno[,i])
-      #   # geno[,i] <- (geno[,i]-mean(geno[,i]))
-      #   # geno[,i] <- geno[,i]/sd(geno[,i])
-      # }
-      #adding by NW----end
       out$SCORE <- as.vector(crossprod(geno, residuals))
       write.table(out[,c("SNP", "chr", "pos", "ref", "alt", "N", "missrate", "altfreq", "SCORE")], meta.file.sample, quote=FALSE, row.names=FALSE, col.names=FALSE, append=TRUE, na=".")
       writeBin(as.numeric(crossprod(residuals2, geno)), meta.file.resample.handle, size = 4)
@@ -231,17 +220,16 @@ G.stat <- function(null.obj, geno.file, meta.file.prefix, MAF.range = c(1e-7, 0.
 
 #' Calculate LDscore
 #' @description Use summary statistics and stochastic statistics from G.stat to estimate LDscore.
-#' @param meta.file.prefix a character vector for prefix of intermediate files (*.sample.* and *.resample.*). 
-#' @param n.files an integer vector with the same length as meta.files.prefix, indicating how many sets of intermediate files (.score.* and .var.*) are expected from each cohort, usually as the result of multi-threading in creating the intermediate files (default = rep(1, length(meta.files.prefix))).
-#' @param N.randomvec the number of replicates to simulate the random vectors in \code{StocSum.LDSC.glmmkin2randomvec} (default = 1000).
-#' @param MAF.range a numeric vector of length 2 defining the minimum and maximum minor allele frequencies of variants that should be included in the analysis (default = c(1e-7, 0.5)).
-#' @param MAF.weight.beta MAF.weight.beta = c(0.5, 0.5). %% a numeric vector of length 2 defining the beta probability density function parameters on the minor allele frequencies. This internal minor allele frequency weight is multiplied by the external weight given by the group.file. To turn off internal minor allele frequency weight and only use the external weight given by the group.file, use c(1, 1) to assign flat weights (default = c(1, 25)). Applied to the combined samples.
-#' @param missing.cutoff the maximum missing rate allowed for a variant to be included (default = 1, including all variants).
-#' @param wind.b a positive integer define the window size in bases (default = 1000000).
-#' @param use.minor.allele a logical switch for whether to use the minor allele (instead of the alt allele) as the coding allele (default = FALSE). It does not change SKAT results, but Burden (as well as SKAT-O and hybrid test to combine the burden test and SKAT) will be affected. Along with the MAF filter, this option is useful for combining rare mutations, assuming rare allele effects are in the same direction. Use with caution, as major/minor alleles may flip in different cohorts. In that case, minor allele will be determined based on the allele frequency in the combined samples.
-#' @param auto.flip a logical switch for whether to enable automatic allele flipping if a variant with alleles ref/alt is not found at a position, but a variant at the same position with alleles alt/ref is found (default = FALSE). Use with caution for whole genome sequence data, as both ref/alt and alt/ref variants at the same position are not uncommon, and they are likely two different variants, rather than allele flipping.
-#' @param nperbatch an integer for how many SNPs to be included in a batch (default = 10000). The computational time can increase dramatically if this value is either small or large. The optimal value for best performance depends on the user’s system.
-#' @param ncores a positive integer indicating the number of cores to be used in parallel computing (default = 1).
+#' @param meta.file.prefix A character for prefix of intermediate files (*.sample.* and *.resample.*). 
+#' @param n.files An integer indicating how many sets of intermediate files (.score.* and .var.*), usually as the result of multi-threading in creating the intermediate files (default = 1)).
+#' @param N.randomvec The number of replicates to simulate the random vectors in \code{StocSum.LDSC.glmmkin2randomvec} (default = 1000).
+#' @param MAF.range A numeric vector of length 2 defining the minimum and maximum minor allele frequencies of variants that should be included in the analysis (default = c(1e-7, 0.5)).
+#' @param miss.cutoff The maximum missing rate allowed for a variant to be included (default = 1, including all variants).
+#' @param wind.b A positive integer define the window size in bases (default = 1000000).
+#' @param use.minor.allele A logical switch for whether to use the minor allele (instead of the alt allele) as the coding allele (default = FALSE). It does not change SKAT results, but Burden (as well as SKAT-O and hybrid test to combine the burden test and SKAT) will be affected. Along with the MAF filter, this option is useful for combining rare mutations, assuming rare allele effects are in the same direction. Use with caution, as major/minor alleles may flip in different cohorts. In that case, minor allele will be determined based on the allele frequency in the combined samples.
+#' @param auto.flip A logical switch for whether to enable automatic allele flipping if a variant with alleles ref/alt is not found at a position, but a variant at the same position with alleles alt/ref is found (default = FALSE). Use with caution for whole genome sequence data, as both ref/alt and alt/ref variants at the same position are not uncommon, and they are likely two different variants, rather than allele flipping.
+#' @param nperbatch An integer for how many SNPs to be included in a batch (default = 10000). The computational time can increase dramatically if this value is either small or large. The optimal value for best performance depends on the user’s system.
+#' @param ncores A positive integer indicating the number of cores to be used in parallel computing (default = 1).
 #' @return \code{LDSC.win} returns a data frame with the following components:
 #' \item{SNP}{SNP name.}
 #' \item{chr}{chromosome name.}
@@ -262,66 +250,40 @@ G.stat <- function(null.obj, geno.file, meta.file.prefix, MAF.range = c(1e-7, 0.
 #' library(GMMAT)
 #' data(example)
 #' attach(example)
+#' seed <- 12345
+#' set.seed(seed)
 #' GRM.file <- system.file("extdata", "GRM.txt.bz2", package = "GMMAT")
 #' GRM <- as.matrix(read.table(GRM.file, check.names = FALSE))
 #' nullmod <- glmmkin(disease ~ age + sex, data = pheno, kins = GRM, id = "id", family = binomial(link = "logit"))
-#' obj <- glmmkin2randomvec(nullmod)
+#' obj <- LDSC.glmmkin2randomvec(nullmod)
 #' out.prefix <- "test"
 #' gdsfile <- system.file("extdata", "geno.gds", package = "GMMAT")
 #' G.stat(obj, geno.file = gdsfile, meta.file.prefix = out.prefix, MAF.range=c(0,0.5), miss.cutoff = 1)
-#' xxxxxxxxxxxxxxxxxxxxxxxxxxx
+#' out<-LDSC.win(out.prefix, use.minor.allele = FALSE, auto.flip = FALSE, wind.b = 1000000, nperbatch = 10000))
 #' }
 #' @keywords LD Score
 #' @export
 
-LDSC.win <- function(meta.files.prefix, n.files = rep(1, length(meta.files.prefix)), N.randomvec=1000, MAF.range = c(1e-3, 0.5), MAF.weights.beta = c(0.5, 0.5), miss.cutoff = 1, wind.b=1000000, use.minor.allele = FALSE, auto.flip = FALSE, nperbatch = 10000, ncores = 1)
+LDSC.win <- function(meta.files.prefix, n.files = 1, N.randomvec=1000, MAF.range = c(1e-3, 0.5), miss.cutoff = 1, wind.b=1000000, use.minor.allele = FALSE, auto.flip = FALSE, nperbatch = 10000, ncores = 1)
 {
-  # cohort.group.idx <- NULL
+  MAF.weights.beta <- c(0.5, 0.5)
   if(.Platform$endian!="little") stop("Error: platform must be little endian.")
-  # n.cohort <- length(meta.files.prefix)
-  # if(length(n.files) != n.cohort) stop("Error: numbers of cohorts specified in meta.files.prefix and n.files do not match.")
-  # if(!is.null(cohort.group.idx)) {
-  #   if(length(cohort.group.idx) != n.cohort) stop("Error: numbers of cohorts specified in meta.files.prefix and cohort.group.idx do not match.")
-  #   cohort.group.idx <- as.numeric(factor(cohort.group.idx))
-  #   n.cohort.groups <- length(unique(cohort.group.idx))
-  # }
   group.info <- NULL
-  # for(i in 1:n.cohort) {
-    # for(j in 1:n.files[i]) {
-    for(j in 1:n.files) {
-      # tmp <- try(read.table(paste0(meta.files.prefix, ".sample.", j), header = TRUE, as.is = TRUE))
-      tmp <- fread(paste0(meta.files.prefix, ".sample.", j), header=TRUE, data.table = FALSE)
-      if (class(tmp) == "try-error") {
-        stop(paste0("Error: cannot read ", meta.files.prefix, ".sample.", j, "!"))
-      }
-      # tmp <- tmp[,c("SNP", "chr", "pos", "ref", "alt","N","altfreq")]
-      tmp <- tmp[,c("chr", "pos","N","missrate", "altfreq", "SCORE" )]
-      # tmp$snpid <- paste(tmp$chr, tmp$pos, tmp$ref, tmp$alt, sep = ":")
-      tmp <- tmp[!duplicated(tmp$pos), , drop = FALSE]
-      tmp$file <- j
-      tmp$variant.idx <- 1:nrow(tmp)
-      # if(auto.flip) {
-      #   snpid2 <- paste(tmp$chr, tmp$pos, tmp$alt, tmp$ref, sep = ":")
-      #   match.snpid <- match(snpid2, tmp$snpid)
-      #   tmp <- tmp[is.na(match.snpid) | match.snpid > 1:length(match.snpid), , drop = FALSE]
-      #   snpid2 <- snpid2[is.na(match.snpid) | match.snpid > 1:length(match.snpid)]
-      #   rm(match.snpid)
-      # }
-      if(!is.null(group.info)) {
-        # if(auto.flip) {
-        #   tmp <- subset(tmp, !snpid %in% group.info$snpid & !snpid2 %in% group.info$snpid)
-        #   rm(snpid2)
-        # } else {
-          tmp <- subset(tmp, !pos %in% group.info$pos)
-        # }
-      } 
-      # else if(auto.flip) {
-      #   # rm(snpid2)
-      # }
-      if(nrow(tmp) > 0) group.info <- rbind(group.info, tmp)
-      rm(tmp)
+  for(j in 1:n.files) {
+    tmp <- fread(paste0(meta.files.prefix, ".sample.", j), header=TRUE, data.table = FALSE)
+    if (class(tmp) == "try-error") {
+      stop(paste0("Error: cannot read ", meta.files.prefix, ".sample.", j, "!"))
     }
-  # }
+    tmp <- tmp[,c("chr", "pos","N","missrate", "altfreq", "SCORE" )]
+    tmp <- tmp[!duplicated(tmp$pos), , drop = FALSE]
+    tmp$file <- j
+    tmp$variant.idx <- 1:nrow(tmp)
+    if(!is.null(group.info)) {
+        tmp <- subset(tmp, !pos %in% group.info$pos)
+    } 
+    if(nrow(tmp) > 0) group.info <- rbind(group.info, tmp)
+    rm(tmp)
+  }
   group.info <- group.info[order(group.info$chr, group.info$pos), ]
   group.info <- group.info[!duplicated(group.info$pos), , drop=FALSE]
   n.groups.all<-nrow(group.info)
@@ -330,13 +292,11 @@ LDSC.win <- function(meta.files.prefix, n.files = rep(1, length(meta.files.prefi
   group.info$pos.end[group.info$pos.end>group.info$pos[n.groups.all]]<-group.info$pos[n.groups.all]
   group.info$pos.start<-group.info$pos-wind.b
   group.info$pos.start[group.info$pos.start<group.info$pos[1]]<-group.info$pos[1]
-  # variant.id1 <- group.info$snpid
   scores <- cons <- vector("list", 1)
   N.resampling <- rep(0, 1)
   cons <- file(paste0(meta.files.prefix, ".resample.1"), "rb")
   N.resampling <- readBin(cons, what = "integer", n = 1, size = 4)
   current.lines <- current.cons <- rep(1, 1)
-  # nbatch.flush <- (n.groups.all-1) %/% nperbatch + 1
   all.out <- NULL
   ncores <- min(c(ncores, parallel::detectCores(logical = TRUE)))
   if(ncores > 1) {
@@ -349,8 +309,6 @@ LDSC.win <- function(meta.files.prefix, n.files = rep(1, length(meta.files.prefi
       n.groups <- length(idx0)
       nbatch.flush <- (n.groups-1) %/% nperbatch + 1
       for(i in 1:nbatch.flush) {
-        # itmp.idx<-group.info$idx[((i-1)*nperbatch+1):min((i*nperbatch),n.groups)]
-        # ii<-match(variant.id0[((i-1)*nperbatch+1):min((i*nperbatch),n.groups)],group.info$snpid)
         ii<-idx0[((i-1)*nperbatch+1):min((i*nperbatch),n.groups)]
         itmp.idx<-group.info$idx[ii]
         dis<-group.info$pos-group.info[group.info$idx==itmp.idx[1],]$pos.start
@@ -361,41 +319,31 @@ LDSC.win <- function(meta.files.prefix, n.files = rep(1, length(meta.files.prefi
         rm(dis)
         U.list <- V.list <- vector("list", 1)
         variant.indices <- tmp.N <- tmp.Nmiss <- tmp.AC <- c()
-        # for(j in 1:n.cohort) {
-          # tmp.scores <- scores[[j]][tmp.idx, , drop = FALSE]
-          tmp.scores <- group.info[group.info$idx %in% tmp.idx, , drop = FALSE]
-          if(any(tmp.include <- !is.na(tmp.scores$SCORE))) {
-            U.list <- tmp.scores[tmp.include, , drop = FALSE]
-            # U.list[[j]]$weight <- U.list[[j]]$weight * U.list[[j]]$flip
-            # U.list[[j]]$SCORE <- U.list[[j]]$SCORE * U.list[[j]]$weight
-            # U.list[[j]]$SCORE <- U.list[[j]]$SCORE * U.list[[j]]$flip
-            tmp.V <- matrix(NA, sum(tmp.include), N.resampling)
-            for(ij in 1:sum(tmp.include)) {
-              if(U.list$file[ij]!=current.cons) {
-                close(cons)
-                current.cons <- U.list$file[ij]
-                cons <- file(paste0(meta.files.prefix, ".resample.", current.cons), "rb")
-                tmp.N.resampling <- readBin(cons, what = "integer", n = 1, size = 4)
-                if(tmp.N.resampling != N.resampling) stop(paste0("Error: N.resampling in ", meta.files.prefix, ".resample.", current.cons, " does not match that in ",meta.files.prefix, ".resample.1"))
-                current.lines <- 1
-              }
-              # current.cons[j] <- U.list[[j]]$file[ij]
-              # cons[[j]] <- file(paste0(meta.files.prefix[j], ".resample.", current.cons[j]), "rb")
-              # if(U.list[[j]]$variant.idx[ij]!=current.lines[j]) seek(cons[[j]], where = 4*N.resampling[j]*(U.list[[j]]$variant.idx[ij]-current.lines[j]), origin = "current", rw = "read")
-              ind <- 4+4*N.resampling*(U.list$variant.idx[ij]-1)
-              seek(cons, where = ind, origin = "start", rw = "read")
-              tmp.V[ij,] <- readBin(cons, what = "numeric", n = N.resampling, size = 4)
-              # current.lines[j] <- U.list[[j]]$variant.idx[ij]+1
+        tmp.scores <- group.info[group.info$idx %in% tmp.idx, , drop = FALSE]
+        if(any(tmp.include <- !is.na(tmp.scores$SCORE))) {
+          U.list <- tmp.scores[tmp.include, , drop = FALSE]
+          tmp.V <- matrix(NA, sum(tmp.include), N.resampling)
+          for(ij in 1:sum(tmp.include)) {
+            if(U.list$file[ij]!=current.cons) {
+              close(cons)
+              current.cons <- U.list$file[ij]
+              cons <- file(paste0(meta.files.prefix, ".resample.", current.cons), "rb")
+              tmp.N.resampling <- readBin(cons, what = "integer", n = 1, size = 4)
+              if(tmp.N.resampling != N.resampling) stop(paste0("Error: N.resampling in ", meta.files.prefix, ".resample.", current.cons, " does not match that in ",meta.files.prefix, ".resample.1"))
             }
-            # V.list[[j]] <- tmp.V * U.list[[j]]$weight / sqrt(N.resampling[j])
-            V.list <- tmp.V / sqrt(N.resampling)
-            rm(tmp.V)
-            variant.indices <- c(variant.indices, U.list$idx)
-            tmp.N <- c(tmp.N, U.list$N)
-            tmp.Nmiss <- c(tmp.Nmiss, U.list$N * U.list$missrate/(1-U.list$missrate))
-            tmp.AC <- c(tmp.AC, 2*U.list$N*U.list$altfreq)
+            current.cons <- U.list$file[ij]
+            cons <- file(paste0(meta.files.prefix, ".resample.", current.cons), "rb")
+            ind <- 4+4*N.resampling*(U.list$variant.idx[ij]-1)
+            seek(cons, where = ind, origin = "start", rw = "read")
+            tmp.V[ij,] <- readBin(cons, what = "numeric", n = N.resampling, size = 4)
           }
-        # }
+          V.list <- tmp.V / sqrt(N.resampling)
+          rm(tmp.V)
+          variant.indices <- c(variant.indices, U.list$idx)
+          tmp.N <- c(tmp.N, U.list$N)
+          tmp.Nmiss <- c(tmp.Nmiss, U.list$N * U.list$missrate/(1-U.list$missrate))
+          tmp.AC <- c(tmp.AC, 2*U.list$N*U.list$altfreq)
+        }
         if(length(variant.indices) == 0) next
         tmp.variant.indices <- variant.indices
         variant.indices <- sort(unique(variant.indices))
@@ -403,41 +351,27 @@ LDSC.win <- function(meta.files.prefix, n.files = rep(1, length(meta.files.prefi
         Nmiss <- sapply(variant.indices, function(x) sum(tmp.Nmiss[tmp.variant.indices==x]))
         AF <- sapply(variant.indices, function(x) sum(tmp.AC[tmp.variant.indices==x]))/2/N
         include <- (Nmiss/(N+Nmiss) <= miss.cutoff & ((AF >= MAF.range[1] & AF <= MAF.range[2]) | (AF >= 1-MAF.range[2] & AF <= 1-MAF.range[1])))
-        # rm(tmp.N, tmp.Nmiss, tmp.AC, tmp.variant.indices, N, Nmiss)
         rm(tmp.N, tmp.Nmiss, tmp.AC, tmp.variant.indices)
         if(sum(include) == 0) next
         variant.indices <- variant.indices[include]
-        # out <- data.frame(SNP = group.info$SNP[variant.indices], chr = group.info$chr[variant.indices], pos = group.info$pos[variant.indices], ref = group.info$ref[variant.indices], alt = group.info$alt[variant.indices], N = N[include], missrate = (Nmiss/(N+Nmiss))[include], altfreq = AF[include])
         out <- group.info[match(itmp.idx,group.info$idx),]
         n.p <- length(variant.indices)
-        # U <- if(!is.null(cohort.group.idx)) rep(0, n.cohort.groups*n.p) else rep(0, n.p)
         V <- matrix(0, n.p, sum(N.resampling))
-        # for(j in 1:n.cohort) {
-          if(!is.null(U.list) & !is.null(V.list)) {
-            IDX <- match(U.list$idx, variant.indices)
-            if(sum(!is.na(IDX)) == 0) next
-            IDX2 <- which(!is.na(IDX))
-            IDX <- IDX[IDX2]
-            # if(!is.null(cohort.group.idx)) IDX <- IDX+n.p*(cohort.group.idx[j]-1)
-            # U[IDX] <- U[IDX]+U.list[[j]]$SCORE[IDX2]
-            # V[IDX, (sum(N.resampling[1:j])-N.resampling[j]+1):sum(N.resampling[1:j])] <- V[IDX,(sum(N.resampling[1:j])-N.resampling[j]+1):sum(N.resampling[1:j])]+V.list[[j]][IDX2,]
-            V[IDX, 1:N.resampling] <- V.list[IDX2,]
-          }
-        # }
+        if(!is.null(U.list) & !is.null(V.list)) {
+          IDX <- match(U.list$idx, variant.indices)
+          if(sum(!is.na(IDX)) == 0) next
+          IDX2 <- which(!is.na(IDX))
+          IDX <- IDX[IDX2]
+          V[IDX, 1:N.resampling] <- V.list[IDX2,]
+        }
         n.batchi<-length(itmp.idx)
         tmp.weight <- MAF.weights.beta.fun(AF[include], MAF.weights.beta[1], MAF.weights.beta[2])
         if(use.minor.allele) tmp.weight[AF[include] > 0.5] <- -tmp.weight[AF[include] > 0.5]
-        # if(!is.null(cohort.group.idx)) tmp.weight <- rep(tmp.weight, n.cohort.groups)
-        # U <- U*tmp.weight*(gamma(MAF.weights.beta[1])*gamma(MAF.weights.beta[2])/gamma(MAF.weights.beta[1]+MAF.weights.beta[2])/sqrt(2))
         V <- V*tmp.weight*(gamma(MAF.weights.beta[1])*gamma(MAF.weights.beta[2])/gamma(MAF.weights.beta[1]+MAF.weights.beta[2])/sqrt(2))
         LDscore<-rep(NA,n.batchi)
-        # ss<-rep(NA,n.batchi)
-        # vv<-rep(NA,n.batchi)
-        # LDscore<-sapply(as.list(seq(1,n.batchi)),function(x) L2(x))
         for (j in 1:n.batchi){
           jidx<-itmp.idx[j]
           if (jidx %in% variant.indices) {
-            # jtmp.idx<-group.info[group.info$pos>group.info$pos.start[(i-1)*nperbatch+j] & group.info$pos<group.info$pos.end[(i-1)*nperbatch+j],]$idx
             jtmp.idx<-group.info[group.info$pos>=group.info$pos.start[ii[j]] & group.info$pos<=group.info$pos.end[ii[j]],]$idx
             jV<-V[variant.indices==jidx,]
             jV0<-match(jtmp.idx,variant.indices)
@@ -446,14 +380,10 @@ LDSC.win <- function(meta.files.prefix, n.files = rep(1, length(meta.files.prefi
             V0<-V[jV0,]
             jN<-N[variant.indices==jidx]
             LDscore[j]<- (1+1/(N.randomvec-2)+1/(jN-2))*rowSums(tcrossprod((tcrossprod(jV,V0))/(jN-1)))-nvariants/(N.randomvec-2)-nvariants/(jN-2)
-            # ss[j]<-sum(jV)
-            # vv[j]<-sum(rowSums(V0))
             rm(jtmp.idx,jV0,V0)
           }
         }
         out$LDscore<-LDscore
-        # out$ss<-ss
-        # out$vv<-vv
         all.out <- rbind(all.out, out)
       }
       return(all.out)
@@ -471,37 +401,30 @@ LDSC.win <- function(meta.files.prefix, n.files = rep(1, length(meta.files.prefi
       rm(dis)
       U.list <- V.list <- vector("list", 1)
       variant.indices <- tmp.N <- tmp.Nmiss <- tmp.AC <- c()
-      # for(j in 1:n.cohort) {
-        tmp.scores <- group.info[group.info$idx %in% tmp.idx, , drop = FALSE]
-        if(any(tmp.include <- !is.na(tmp.scores$SCORE))) {
-          U.list <- tmp.scores[tmp.include, , drop = FALSE]
-          # U.list[[j]]$weight <- U.list[[j]]$weight * U.list[[j]]$flip
-          # U.list[[j]]$SCORE <- U.list[[j]]$SCORE * U.list[[j]]$weight
-          # U.list[[j]]$SCORE <- U.list[[j]]$SCORE * U.list[[j]]$flip
-          tmp.V <- matrix(NA, sum(tmp.include), N.resampling)
-          for(ij in 1:sum(tmp.include)) {
-            # print(ij)
-            if(U.list$file[ij]!=current.cons) {
-                close(cons)
-                current.cons <- U.list$file[ij]
-                cons <- file(paste0(meta.files.prefix, ".resample.", current.cons), "rb")
-                tmp.N.resampling <- readBin(cons, what = "integer", n = 1, size = 4)
-                if(tmp.N.resampling != N.resampling) stop(paste0("Error: N.resampling in ", meta.files.prefix, ".resample.", current.cons, " does not match that in ",meta.files.prefix, ".resample.1"))
-                current.lines <- 1
-            }
-            if(U.list$variant.idx[ij]!=current.lines) seek(cons, where = 4*N.resampling*(U.list$variant.idx[ij]-current.lines), origin = "current", rw = "read")
-            tmp.V[ij,] <- readBin(cons, what = "numeric", n = N.resampling, size = 4)
-            current.lines <- U.list$variant.idx[ij]+1
+      tmp.scores <- group.info[group.info$idx %in% tmp.idx, , drop = FALSE]
+      if(any(tmp.include <- !is.na(tmp.scores$SCORE))) {
+        U.list <- tmp.scores[tmp.include, , drop = FALSE]
+        tmp.V <- matrix(NA, sum(tmp.include), N.resampling)
+        for(ij in 1:sum(tmp.include)) {
+          if(U.list$file[ij]!=current.cons) {
+              close(cons)
+              current.cons <- U.list$file[ij]
+              cons <- file(paste0(meta.files.prefix, ".resample.", current.cons), "rb")
+              tmp.N.resampling <- readBin(cons, what = "integer", n = 1, size = 4)
+              if(tmp.N.resampling != N.resampling) stop(paste0("Error: N.resampling in ", meta.files.prefix, ".resample.", current.cons, " does not match that in ",meta.files.prefix, ".resample.1"))
+              current.lines <- 1
           }
-          # V.list[[j]] <- tmp.V * U.list[[j]]$weight / sqrt(N.resampling[j])
-          V.list <- tmp.V / sqrt(N.resampling)
-          rm(tmp.V)
-          variant.indices <- c(variant.indices, U.list$idx)
-          tmp.N <- c(tmp.N, U.list$N)
-          tmp.Nmiss <- c(tmp.Nmiss, U.list$N * U.list$missrate/(1-U.list$missrate))
-          tmp.AC <- c(tmp.AC, 2*U.list$N*U.list$altfreq)
+          if(U.list$variant.idx[ij]!=current.lines) seek(cons, where = 4*N.resampling*(U.list$variant.idx[ij]-current.lines), origin = "current", rw = "read")
+          tmp.V[ij,] <- readBin(cons, what = "numeric", n = N.resampling, size = 4)
+          current.lines <- U.list$variant.idx[ij]+1
         }
-      # }
+        V.list <- tmp.V / sqrt(N.resampling)
+        rm(tmp.V)
+        variant.indices <- c(variant.indices, U.list$idx)
+        tmp.N <- c(tmp.N, U.list$N)
+        tmp.Nmiss <- c(tmp.Nmiss, U.list$N * U.list$missrate/(1-U.list$missrate))
+        tmp.AC <- c(tmp.AC, 2*U.list$N*U.list$altfreq)
+      }
       if(length(variant.indices) == 0) next
       tmp.variant.indices <- variant.indices
       variant.indices <- sort(unique(variant.indices))
@@ -509,36 +432,24 @@ LDSC.win <- function(meta.files.prefix, n.files = rep(1, length(meta.files.prefi
       Nmiss <- sapply(variant.indices, function(x) sum(tmp.Nmiss[tmp.variant.indices==x]))
       AF <- sapply(variant.indices, function(x) sum(tmp.AC[tmp.variant.indices==x]))/2/N
       include <- (Nmiss/(N+Nmiss) <= miss.cutoff & ((AF >= MAF.range[1] & AF <= MAF.range[2]) | (AF >= 1-MAF.range[2] & AF <= 1-MAF.range[1])))
-      # rm(tmp.N, tmp.Nmiss, tmp.AC, tmp.variant.indices, N, Nmiss)
       rm(tmp.N, tmp.Nmiss, tmp.AC, tmp.variant.indices)
       if(sum(include) == 0) next
       variant.indices <- variant.indices[include]
-      # out <- data.frame(SNP = group.info$SNP[variant.indices], chr = group.info$chr[variant.indices], pos = group.info$pos[variant.indices], ref = group.info$ref[variant.indices], alt = group.info$alt[variant.indices], N = N[include], missrate = (Nmiss/(N+Nmiss))[include], altfreq = AF[include])
       out <- group.info[match(itmp.idx,group.info$idx),]
       n.p <- length(variant.indices)
-      # U <- if(!is.null(cohort.group.idx)) rep(0, n.cohort.groups*n.p) else rep(0, n.p)
       V <- matrix(0, n.p, sum(N.resampling))
-      # for(j in 1:n.cohort) {
-        if(!is.null(U.list) & !is.null(V.list)) {
-          IDX <- match(U.list$idx, variant.indices)
-          if(sum(!is.na(IDX)) == 0) next
-          IDX2 <- which(!is.na(IDX))
-          IDX <- IDX[IDX2]
-          # if(!is.null(cohort.group.idx)) IDX <- IDX+n.p*(cohort.group.idx[j]-1)
-          # U[IDX] <- U[IDX]+U.list[[j]]$SCORE[IDX2]
-          V[IDX, 1:N.resampling] <- V.list[IDX2,]
-        }
-      # }
+      if(!is.null(U.list) & !is.null(V.list)) {
+        IDX <- match(U.list$idx, variant.indices)
+        if(sum(!is.na(IDX)) == 0) next
+        IDX2 <- which(!is.na(IDX))
+        IDX <- IDX[IDX2]
+        V[IDX, 1:N.resampling] <- V.list[IDX2,]
+      }
       n.batchi<-length(itmp.idx)
       tmp.weight <- MAF.weights.beta.fun(AF[include], MAF.weights.beta[1], MAF.weights.beta[2])
       if(use.minor.allele) tmp.weight[AF[include] > 0.5] <- -tmp.weight[AF[include] > 0.5]
-      # if(!is.null(cohort.group.idx)) tmp.weight <- rep(tmp.weight, n.cohort.groups)
-      # U <- U*tmp.weight*(gamma(MAF.weights.beta[1])*gamma(MAF.weights.beta[2])/gamma(MAF.weights.beta[1]+MAF.weights.beta[2])/sqrt(2))
       V <- V*tmp.weight*(gamma(MAF.weights.beta[1])*gamma(MAF.weights.beta[2])/gamma(MAF.weights.beta[1]+MAF.weights.beta[2])/sqrt(2))
       LDscore<-rep(NA,n.batchi)
-      # ss<-rep(NA,n.batchi)
-      # vv<-rep(NA,n.batchi)
-      # LDscore<-sapply(as.list(seq(1,n.batchi)),function(x) L2(x))
       for (j in 1:n.batchi){
         jidx<-itmp.idx[j]
         if (jidx %in% variant.indices) {
@@ -548,25 +459,19 @@ LDSC.win <- function(meta.files.prefix, n.files = rep(1, length(meta.files.prefi
           jV0<-jV0[!is.na(jV0)]
           nvariants<-length(jV0)
           V0<-V[jV0,]
-          # jN<-N[variant.indices==jidx]
-          jN<-N[jidx]
+          jN<-N[variant.indices==jidx]
           LDscore[j]<- (1+1/(N.randomvec-2)+1/(jN-2))*rowSums(tcrossprod((tcrossprod(jV,V0))/(jN-1)))-nvariants/(N.randomvec-2)-nvariants/(jN-2)
-          # ss[j]<-sum(jV)
-          # vv[j]<-sum(rowSums(V0))
           rm(jtmp.idx,jV0,V0)
         }
       }
       out$LDscore<-LDscore
-      # out$ss<-ss
-      # out$vv<-vv
       all.out <- rbind(all.out, out)
     }
   }
-  # for(i in 1:n.cohort) close(cons[[i]])
   close(cons)
   return(all.out)
-  # return(V)
 }
+
 
 MAF.weights.beta.fun <- function(freq, beta1, beta2) {
   freq[freq > 0.5] <- 1 - freq[freq > 0.5]
