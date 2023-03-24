@@ -1,4 +1,4 @@
-#' Create random vectors for a glmmkin object
+#' Create random vectors for a glmmkin object test
 #' @description Generate random vectors from multivariate normal distribution with mean 0 and covariance matrix P.
 #' @param obj A glmmkin object.
 #' @param Z A list of design matrices for the random effects. The length must match the number of variance components.
